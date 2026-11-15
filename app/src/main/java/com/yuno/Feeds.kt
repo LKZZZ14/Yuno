@@ -429,7 +429,11 @@ fun FeedList(
     val list = rememberScrollToTop(scrollToTop, listState ?: created)
     // A refresh or a new chip starts at the top. The first page landing does not,
     // so scrolling the skeletons is kept when the videos arrive.
-    LaunchedEffect(feed.generation, filterScrollKey) { list.scrollToItem(0) }
+    val openedAt = remember { feed.generation to filterScrollKey }
+    LaunchedEffect(feed.generation, filterScrollKey) {
+        if (feed.generation to filterScrollKey == openedAt) return@LaunchedEffect
+        list.scrollToItem(0)
+    }
     val nearEnd by remember {
         derivedStateOf {
             val last = list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0

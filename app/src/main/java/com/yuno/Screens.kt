@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
@@ -140,6 +141,32 @@ private fun HomeChipPager(
     val pager = rememberPagerState { chips.size }
     val lists = remember { mutableStateMapOf<String, LazyListState>() }
     fun listAt(title: String) = lists.getOrPut(title) { LazyListState() }
+    // A sideways move stays level. The page sliding in is put at the same scroll as the one
+    // you left, including when that one is scrolled down past the wordmark.
+    var capturedFrom by remember { mutableIntStateOf(-1) }
+    var anchorIndex by remember { mutableIntStateOf(0) }
+    var anchorOffset by remember { mutableIntStateOf(0) }
+    SideEffect {
+        val swiping = pager.isScrollInProgress
+        if (!swiping) {
+            capturedFrom = -1
+            return@SideEffect
+        }
+        val fromPage = pager.settledPage.coerceIn(0, chips.lastIndex)
+        if (capturedFrom != fromPage) {
+            capturedFrom = fromPage
+            val from = chips.getOrNull(fromPage)?.title?.let { lists[it] } ?: return@SideEffect
+            anchorIndex = from.firstVisibleItemIndex
+            anchorOffset = from.firstVisibleItemScrollOffset
+        }
+        chips.forEachIndexed { index, chip ->
+            if (index == fromPage) return@forEachIndexed
+            val list = lists[chip.title] ?: return@forEachIndexed
+            if (list.firstVisibleItemIndex != anchorIndex || list.firstVisibleItemScrollOffset != anchorOffset) {
+                list.requestScrollToItem(anchorIndex, anchorOffset)
+            }
+        }
+    }
     val follow = if (pager.isScrollInProgress) pager.settledPage else pager.currentPage
     val followTitle = chips.getOrNull(follow.coerceIn(0, chips.lastIndex))?.title
     val active = chips.getOrNull(pager.settledPage.coerceIn(0, chips.lastIndex))
@@ -166,7 +193,7 @@ private fun HomeChipPager(
                 LaunchedEffect(chip.token) { feed.ensureLoaded() }
                 FeedList(
                     feed,
-                    contentPadding.withTop(top),
+                    contentPadding.withTop(0.dp),
                     onOpen,
                     header = { item(key = "home-head") { Spacer(Modifier.height(headerDp)) } },
                     scrollToTop = scrollToTop,
@@ -174,14 +201,16 @@ private fun HomeChipPager(
                     listState = listAt(chip.title),
                 )
             }
+            // The top inset is inside the measured block, so scrolling it away clears the
+            // tabs off the top of the screen instead of leaving their edge under the bar.
             Column(
                 Modifier
                     .align(Alignment.TopStart)
-                    .padding(top = top)
                     .offset { IntOffset(0, -scrollPx) }
                     .onSizeChanged { headerPx = it.height }
                     .fillMaxWidth(),
             ) {
+                Spacer(Modifier.height(top))
                 LargePageBrandMark()
                 HomeChips(chips, pager.currentPage) { index ->
                     if (index != pager.currentPage) scope.launch { pager.animateScrollToPage(index) }
