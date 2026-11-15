@@ -28,7 +28,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -40,12 +43,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -90,27 +100,94 @@ fun HomeScreen(
     // to the account's recommendations after [LibraryData.reset].
     val signedIn = Account.signedIn
     LaunchedEffect(signedIn) { lib.home.ensureLoaded() }
-    val listState = rememberLazyListState()
-    // The bar itself is the refresh control. Other feeds still use the circular indicator.
-    BarPullRefresh(refreshing = lib.home.refreshing, onRefresh = lib.home::refresh, state = pullState) {
-        Box(Modifier.fillMaxSize()) {
-            FeedList(
-                lib.home,
-                contentPadding.withTop(pageContentTop()),
-                onOpen,
-                header = {
-                    item(key = "page-title") { LargePageBrandMark() }
-                    if (lib.home.chips.size > 1) {
-                        item(key = "chips") {
-                            HomeChips(lib.home.chips, lib.home.chip) { lib.home.selectChip(it) }
-                        }
-                    }
-                },
-                scrollToTop = scrollToTop,
-                pullToRefresh = false,
-                listState = listState,
-            )
-            PageTopFade(listState)
+    val chips = lib.home.chips
+    if (chips.size > 1) {
+        HomeChipPager(lib, chips, contentPadding, onOpen, scrollToTop, pullState)
+    } else {
+        val listState = rememberLazyListState()
+        // The bar itself is the refresh control. Other feeds still use the circular indicator.
+        BarPullRefresh(refreshing = lib.home.refreshing, onRefresh = lib.home::refresh, state = pullState) {
+            Box(Modifier.fillMaxSize()) {
+                FeedList(
+                    lib.home,
+                    contentPadding.withTop(pageContentTop()),
+                    onOpen,
+                    header = { item(key = "page-title") { LargePageBrandMark() } },
+                    scrollToTop = scrollToTop,
+                    pullToRefresh = false,
+                    listState = listState,
+                )
+                PageTopFade(listState)
+            }
+        }
+    }
+}
+
+/**
+ * Home's categories, paged like a channel: the wordmark and the tabs stay put while the
+ * lists swipe, and they scroll away with whichever list is on screen.
+ */
+@Composable
+private fun HomeChipPager(
+    lib: LibraryData,
+    chips: List<FeedChip>,
+    contentPadding: PaddingValues,
+    onOpen: (VideoItem) -> Unit,
+    scrollToTop: Int,
+    pullState: BarPullRefreshState?,
+) {
+    val scope = rememberCoroutineScope()
+    val pager = rememberPagerState { chips.size }
+    val lists = remember { mutableStateMapOf<String, LazyListState>() }
+    fun listAt(title: String) = lists.getOrPut(title) { LazyListState() }
+    val follow = if (pager.isScrollInProgress) pager.settledPage else pager.currentPage
+    val followTitle = chips.getOrNull(follow.coerceIn(0, chips.lastIndex))?.title
+    val active = chips.getOrNull(pager.settledPage.coerceIn(0, chips.lastIndex))
+    val activeFeed = if (active == null || active.token == null) lib.home else lib.category(active)
+    var headerPx by remember { mutableIntStateOf(0) }
+    val followList = followTitle?.let { lists[it] }
+    val scrollPx = when {
+        followList == null || headerPx <= 0 -> 0
+        followList.firstVisibleItemIndex > 0 -> headerPx
+        else -> followList.firstVisibleItemScrollOffset.coerceAtMost(headerPx)
+    }
+    val headerDp = with(androidx.compose.ui.platform.LocalDensity.current) { headerPx.toDp() }
+    val top = pageContentTop()
+    BarPullRefresh(refreshing = activeFeed.refreshing, onRefresh = activeFeed::refresh, state = pullState) {
+        Box(Modifier.fillMaxSize().clipToBounds()) {
+            HorizontalPager(
+                state = pager,
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.Top,
+                beyondViewportPageCount = 1,
+            ) { page ->
+                val chip = chips[page]
+                val feed = if (chip.token == null) lib.home else lib.category(chip)
+                LaunchedEffect(chip.token) { feed.ensureLoaded() }
+                FeedList(
+                    feed,
+                    contentPadding.withTop(top),
+                    onOpen,
+                    header = { item(key = "home-head") { Spacer(Modifier.height(headerDp)) } },
+                    scrollToTop = scrollToTop,
+                    pullToRefresh = false,
+                    listState = listAt(chip.title),
+                )
+            }
+            Column(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = top)
+                    .offset { IntOffset(0, -scrollPx) }
+                    .onSizeChanged { headerPx = it.height }
+                    .fillMaxWidth(),
+            ) {
+                LargePageBrandMark()
+                HomeChips(chips, pager.currentPage) { index ->
+                    if (index != pager.currentPage) scope.launch { pager.animateScrollToPage(index) }
+                }
+            }
+            PageTopFade(listAt(followTitle ?: chips.first().title))
         }
     }
 }
@@ -179,11 +256,10 @@ fun SubscriptionsScreen(
     }
 }
 
-/** Home's recommendation tabs. The channel page's tab row, in the list, so it scrolls away. */
+/** Home's recommendation tabs. The channel page's tab row. It scrolls away with the open list. */
 @Composable
-private fun HomeChips(chips: List<FeedChip>, chosen: FeedChip?, onPick: (FeedChip) -> Unit) {
+private fun HomeChips(chips: List<FeedChip>, selected: Int, onPick: (Int) -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val selected = chips.indexOfFirst { chosen?.let { ch -> ch.title == it.title } ?: (it.token == null) }.coerceAtLeast(0)
     val palette = ArtworkPalette(
         background = scheme.background,
         wash = scheme.background,
@@ -194,7 +270,7 @@ private fun HomeChips(chips: List<FeedChip>, chosen: FeedChip?, onPick: (FeedChi
         divider = scheme.outlineVariant,
     )
     Column(Modifier.fillMaxWidth()) {
-        ChannelTabRow(selected, chips.map { it.title }, palette) { onPick(chips[it]) }
+        ChannelTabRow(selected.coerceIn(0, chips.lastIndex), chips.map { it.title }, palette, onPick)
         Spacer(Modifier.height(PageGutter))
     }
 }

@@ -224,6 +224,18 @@ class LibraryData(scope: CoroutineScope, context: Context) {
     val home = FeedState(scope, prefetchTop = 2, freshOnRefresh = true) { next ->
         if (Account.signedIn) InnerTube.home(next) else InnerTube.guestHome(next)
     }
+    private val categories = mutableMapOf<String, FeedState>()
+
+    /** One feed per recommendation tab. The chip with no token is [home] itself. */
+    fun category(chip: FeedChip): FeedState {
+        val token = chip.token ?: return home
+        return categories.getOrPut(token) {
+            FeedState(scope, prefetchTop = 2) { next ->
+                val page = next ?: token
+                if (Account.signedIn) InnerTube.home(page) else InnerTube.guestHome(page)
+            }
+        }
+    }
     val subscriptions = FeedState(scope, prefetchTop = 2) { InnerTube.subscriptionsFeed(it) }
     val history = FeedState(scope) { InnerTube.history(it) }
     private val prefs = context.getSharedPreferences(CHANNELS_PREFS, Context.MODE_PRIVATE)
@@ -276,6 +288,8 @@ class LibraryData(scope: CoroutineScope, context: Context) {
 
     fun reset() {
         home.reset(); subscriptions.reset(); history.reset()
+        categories.values.forEach { it.reset() }
+        categories.clear()
         channelsJob?.cancel(); channelsJob = null; subscriptionsShown = false
         channels = emptyList(); playlists = emptyList()
         prefs.edit().remove(KEY_CHANNELS).apply()
