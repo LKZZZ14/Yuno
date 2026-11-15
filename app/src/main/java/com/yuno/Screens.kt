@@ -79,7 +79,9 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.snapshotFlow
 import com.yuno.icons.SfIcons
 
 // ── Home / Subscriptions / Library ─────────────────────────────────────────────
@@ -166,6 +168,20 @@ private fun HomeChipPager(
                 list.requestScrollToItem(anchorIndex, anchorOffset)
             }
         }
+    }
+    // The tab you stop on glides back to the top. A second swipe cancels the one in between,
+    // so only the page you actually land on keeps scrolling.
+    LaunchedEffect(chips) {
+        var seen = pager.settledPage
+        snapshotFlow { pager.isScrollInProgress to pager.settledPage }
+            .collectLatest { (moving, page) ->
+                if (moving || page == seen) return@collectLatest
+                seen = page
+                val title = chips.getOrNull(page)?.title ?: return@collectLatest
+                val list = lists[title] ?: return@collectLatest
+                if (list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0) return@collectLatest
+                list.animateScrollToItem(0)
+            }
     }
     val follow = if (pager.isScrollInProgress) pager.settledPage else pager.currentPage
     val followTitle = chips.getOrNull(follow.coerceIn(0, chips.lastIndex))?.title
