@@ -693,21 +693,7 @@ private fun ChannelPagerBody(
         LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = listPad) {
             channelScrollHead(headerPx, headerDp, tabsDp)
             pageGap()
-            if (state.gridView) {
-                items(shelf.items.chunked(columns), key = { row -> row.first().id }) { row ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = PageGutter),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        row.forEach { p ->
-                            ChannelStackedPlaylist(p, palette, Modifier.weight(1f), gutter = false) { onOpenPlaylist(p) }
-                        }
-                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
-            } else {
-                items(shelf.items, key = { it.id }) { p -> PlaylistRow(p, palette) { onOpenPlaylist(p) } }
-            }
+            channelPlaylistItems(shelf.items, columns, state.gridView, palette, onOpenPlaylist)
             feedTail(
                 shelf.loading || shelf.hasMore || !shelf.tried,
                 shelf.error.takeIf { shelf.items.isEmpty() },
@@ -758,21 +744,7 @@ private fun ChannelPagerBody(
                                 onPick = feed::selectChip,
                             )
                         }
-                        if (state.gridView) {
-                            items(shown.chunked(columns), key = { row -> row.first().id }) { row ->
-                                Row(
-                                    Modifier.fillMaxWidth().padding(horizontal = PageGutter),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    row.forEach { video ->
-                                        ChannelStackedVideo(video, palette, Modifier.weight(1f), gutter = false) { onOpen(video) }
-                                    }
-                                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
-                                }
-                            }
-                        } else {
-                            items(shown, key = { it.id }) { video -> ChannelFeedVideo(video, palette) { onOpen(video) } }
-                        }
+                        channelVideoItems(shown, columns, state.gridView, palette, onOpen)
                         if (searching) feedTail(
                             state.searchLoading || state.searchHasMore,
                             state.searchError.takeIf { shown.isEmpty() },
@@ -813,21 +785,7 @@ private fun ChannelPagerBody(
                                 )
                             }
                         } else pageGap()
-                        if (state.gridView) {
-                            items(feed.videos.chunked(columns), key = { row -> row.first().id }) { row ->
-                                Row(
-                                    Modifier.fillMaxWidth().padding(horizontal = PageGutter),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    row.forEach { video ->
-                                        ChannelStackedVideo(video, palette, Modifier.weight(1f), gutter = false) { onOpen(video) }
-                                    }
-                                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
-                                }
-                            }
-                        } else {
-                            items(feed.videos, key = { it.id }) { video -> ChannelFeedVideo(video, palette) { onOpen(video) } }
-                        }
+                        channelVideoItems(feed.videos, columns, state.gridView, palette, onOpen)
                         feedTail(
                             feed.loading || feed.hasMore || feed.waiting,
                             feed.error.takeIf { feed.videos.isEmpty() },
@@ -1009,7 +967,7 @@ private fun tabLabel(t: ChannelTab) = when (t) {
 }
 
 /**
- * Home, as Flow's shelf page on a phone: an 8dp gap, the featured video as a full-width card,
+ * Home, as Flow's shelf page on a phone: an 8dp gap, the featured video as the home page's card,
  * then each shelf as a vertical list of the same rows the other tabs use. Four rows show, with
  * an arrow for the rest. A Shorts shelf stays a horizontal strip.
  */
@@ -1024,7 +982,7 @@ private fun LazyListScope.homeTab(
 ) {
     item { Spacer(Modifier.height(PageGutter)) }
     state.home?.featured?.let { video ->
-        item(key = "featured") { ChannelStackedVideo(video, palette) { onOpen(video) } }
+        item(key = "featured") { ChannelFeedVideo(video, palette) { onOpen(video) } }
     }
     state.shelves.forEachIndexed { i, shelf ->
         if (shelf.shorts.isNotEmpty()) {
@@ -1253,6 +1211,89 @@ private fun PlaylistBadge(p: PlaylistRef, modifier: Modifier) {
         playlistCount(p)?.let {
             Spacer(Modifier.width(3.dp))
             Text(it, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/**
+ * List is the row. Grid is the home page's card: inset thumbnail, avatar, title, meta.
+ * One column on a phone, more on a wide window, same as the app home.
+ */
+private fun LazyListScope.channelVideoItems(
+    videos: List<VideoItem>,
+    columns: Int,
+    grid: Boolean,
+    palette: ArtworkPalette,
+    onOpen: (VideoItem) -> Unit,
+) {
+    if (!grid) {
+        items(videos, key = { it.id }) { video -> ChannelVideoRow(video, palette) { onOpen(video) } }
+        return
+    }
+    if (columns <= 1) {
+        items(videos, key = { it.id }) { video -> ChannelFeedVideo(video, palette) { onOpen(video) } }
+        return
+    }
+    items(videos.chunked(columns), key = { row -> row.first().id }) { row ->
+        Row(Modifier.fillMaxWidth().padding(horizontal = 5.dp)) {
+            row.forEach { video ->
+                Box(Modifier.weight(1f)) { ChannelFeedVideo(video, palette) { onOpen(video) } }
+            }
+            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+        }
+    }
+}
+
+/** List is the row. Grid is the same inset card as a video, with the count on the thumbnail. */
+private fun LazyListScope.channelPlaylistItems(
+    playlists: List<PlaylistRef>,
+    columns: Int,
+    grid: Boolean,
+    palette: ArtworkPalette,
+    onOpen: (PlaylistRef) -> Unit,
+) {
+    if (!grid) {
+        items(playlists, key = { it.id }) { p -> PlaylistRow(p, palette) { onOpen(p) } }
+        return
+    }
+    if (columns <= 1) {
+        items(playlists, key = { it.id }) { p -> ChannelPlaylistCard(p, palette) { onOpen(p) } }
+        return
+    }
+    items(playlists.chunked(columns), key = { row -> row.first().id }) { row ->
+        Row(Modifier.fillMaxWidth().padding(horizontal = 5.dp)) {
+            row.forEach { p ->
+                Box(Modifier.weight(1f)) { ChannelPlaylistCard(p, palette) { onOpen(p) } }
+            }
+            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+        }
+    }
+}
+
+/** A playlist in the grid: the home card's inset thumbnail and type, with the count badge. */
+@Composable
+private fun ChannelPlaylistCard(p: PlaylistRef, palette: ArtworkPalette, onClick: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(bottom = 16.dp).pressable(pressedScale = 0.97f, onClick = onClick),
+    ) {
+        Box(Modifier.padding(horizontal = PageGutter).clip(RoundedCornerShape(FeedVideoThumbRadius.dp))) {
+            Thumbnail(p.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = FeedVideoThumbRadius)
+            PlaylistBadge(p, Modifier.align(Alignment.BottomEnd).padding(5.dp))
+        }
+        Column(Modifier.padding(horizontal = PageGutter, vertical = 12.dp)) {
+            Text(
+                p.title,
+                color = palette.onBackground,
+                fontWeight = FontWeight.Medium,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            p.subtitle?.let {
+                Spacer(Modifier.height(1.dp))
+                Text(it, color = palette.onBackgroundVariant, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }

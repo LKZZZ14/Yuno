@@ -565,8 +565,8 @@ internal fun ChannelPostCard(post: CommunityPost, palette: ArtworkPalette) {
 }
 
 /**
- * List view on Videos. The home page's card: full-width thumbnail, then the avatar, the title
- * and the meta line at the home page's sizes.
+ * Grid view on Videos and Live, and the channel home's featured video. The home page's card:
+ * inset thumbnail, then the avatar, the title and the meta line at the home page's sizes.
  */
 @Composable
 internal fun ChannelFeedVideo(video: VideoItem, palette: ArtworkPalette, onClick: () -> Unit) {
@@ -632,67 +632,6 @@ internal fun ChannelVideoRow(video: VideoItem, palette: ArtworkPalette, onClick:
             if (meta.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Text(meta, style = MaterialTheme.typography.bodySmall, color = palette.onBackgroundVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
-}
-
-/** A video as a stacked card: the thumbnail on top, the title under it. Flow's grid card on a phone. */
-@Composable
-internal fun ChannelStackedVideo(
-    video: VideoItem,
-    palette: ArtworkPalette,
-    modifier: Modifier = Modifier,
-    gutter: Boolean = true,
-    onClick: () -> Unit,
-) {
-    val menu = LocalVideoMenu.current
-    Column(
-        modifier.fillMaxWidth().padding(bottom = 12.dp).prefetchOnPress(video.id)
-            .pressable(pressedScale = 0.97f, onLongClick = { menu(video) }, onClick = onClick),
-    ) {
-        Box {
-            Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 0, videoId = video.id)
-            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true, live = video.live)
-            ResumeBar(video.id, Modifier.align(Alignment.BottomStart))
-        }
-        Column(Modifier.padding(horizontal = if (gutter) PageGutter else 0.dp)) {
-            Text(
-                video.title,
-                Modifier.padding(top = 8.dp),
-                style = MaterialTheme.typography.titleSmall,
-                color = palette.onBackground,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            val meta = metaLine("", video.views, video.uploaded)
-            if (meta.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Text(meta, style = MaterialTheme.typography.bodySmall, color = palette.onBackgroundVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
-}
-
-/** A playlist as a stacked card, the grid form of [PlaylistRow]. */
-@Composable
-internal fun ChannelStackedPlaylist(
-    p: PlaylistRef,
-    palette: ArtworkPalette,
-    modifier: Modifier = Modifier,
-    gutter: Boolean = true,
-    onClick: () -> Unit,
-) {
-    Column(modifier.fillMaxWidth().padding(bottom = 12.dp).pressable(pressedScale = 0.97f, onClick = onClick)) {
-        Box {
-            Thumbnail(p.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 0)
-            // The badge lives on the row; the stacked card keeps the count under the title.
-        }
-        Column(Modifier.padding(horizontal = if (gutter) PageGutter else 0.dp, vertical = 8.dp)) {
-            Text(p.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = palette.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            p.subtitle?.let {
-                Spacer(Modifier.height(4.dp))
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = palette.onBackgroundVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
