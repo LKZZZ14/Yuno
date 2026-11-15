@@ -69,6 +69,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -637,12 +638,13 @@ private fun ChannelPagerBody(
     }
     var offsetPx by remember { mutableFloatStateOf(0f) }
     var pinnedPage by remember { mutableIntStateOf(-1) }
+    var openedAtTop by remember { mutableStateOf(false) }
     val swiping = pager.isScrollInProgress
     if (!swiping && pager.settledPage == pinnedPage) offsetPx = liveOffset
     // A swipe keeps the collapse. The page you land on is already scrolled by that much, so the
     // header does not spring open when the new list is sitting at its top.
     SideEffect {
-        if (swiping) return@SideEffect
+        if (swiping || !openedAtTop) return@SideEffect
         val page = pager.settledPage
         if (page == pinnedPage) return@SideEffect
         val px = headerPx.toInt()
@@ -650,26 +652,21 @@ private fun ChannelPagerBody(
         if (px > 0) listAt(page).requestScrollToItem(0, off)
         pinnedPage = page
     }
-    var openedAtTop by remember { mutableStateOf(false) }
+    // Only the open list. scrollToItem on a tab that is not composed never returns, and the
+    // page stayed blank. The sticky tab spacer can shove this list down as the header is measured.
     LaunchedEffect(headerPx > 0f) {
-        if (headerPx > 0f && !openedAtTop && offsetPx == 0f) {
-            homeList.scrollToItem(0)
-            videosList.scrollToItem(0)
-            shortsList.scrollToItem(0)
-            playlistsList.scrollToItem(0)
-            postsList.scrollToItem(0)
-            aboutList.scrollToItem(0)
-            openedAtTop = true
-        } else if (headerPx > 0f) {
-            openedAtTop = true
-        }
+        if (headerPx <= 0f || openedAtTop) return@LaunchedEffect
+        withFrameNanos { }
+        listAt(pager.settledPage).requestScrollToItem(0)
+        offsetPx = 0f
+        openedAtTop = true
     }
     val shelfOpen = remember { androidx.compose.runtime.mutableStateMapOf<Int, Boolean>() }
     val groups = channelFilterGroups(state.videos.filters, state.videos.chips)
     Box(Modifier.fillMaxSize().padding(top = barHeight).clipToBounds()) {
         HorizontalPager(
             state = pager,
-            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (headerPx > 0f) 1f else 0f },
+            modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.Top,
         ) { index ->
             val tab = tabs.getOrNull(index) ?: return@HorizontalPager
