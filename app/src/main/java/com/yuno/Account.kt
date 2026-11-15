@@ -104,6 +104,25 @@ data class ChannelHome(
     val subscribed: Boolean? = null,
     /** The channel's @handle, from the page's vanity URL. */
     val handle: String? = null,
+    /** The About panel (links, and the full description), fetched from the header's continuation. */
+    val about: ChannelAboutInfo? = null,
+)
+
+/** One row of a channel's About panel. [icon] is the site's favicon when YouTube sent one. */
+@Immutable
+data class ChannelLink(val title: String, val display: String, val url: String, val icon: String?)
+
+/** What the About continuation returns. Any field is missing when YouTube didn't send it. */
+@Immutable
+data class ChannelAboutInfo(
+    val description: String? = null,
+    val country: String? = null,
+    val joined: String? = null,
+    val views: String? = null,
+    val videos: String? = null,
+    val subscribers: String? = null,
+    val canonical: String? = null,
+    val links: List<ChannelLink> = emptyList(),
 )
 
 enum class LikeStatus { Like, Dislike, None }
@@ -376,6 +395,16 @@ object InnerTube {
      * first page carries the tab's sort as chips (Latest · Popular · Oldest); a chip's token is a
      * continuation that reloads the list in that order, read like any next page.
      */
+    /**
+     * Videos on this channel matching [query]. The same browse as the Videos tab, with YouTube's
+     * search-tab params and the query on the body (Flow's `channelSearch`).
+     */
+    suspend fun channelSearch(channelId: String, query: String, continuation: String? = null): FeedPage = withContext(Dispatchers.IO) {
+        val body = if (continuation != null) JSONObject().put("continuation", continuation)
+        else JSONObject().put("browseId", channelId).put("params", "EgZzZWFyY2jyBgQKAloA").put("query", query)
+        parseFeed(postAny("browse", body))
+    }
+
     suspend fun channelVideos(channelId: String, continuation: String? = null): FeedPage = withContext(Dispatchers.IO) {
         val body = if (continuation != null) JSONObject().put("continuation", continuation)
         else JSONObject().put("browseId", channelId).put("params", CHANNEL_VIDEOS_TAB)
@@ -394,7 +423,10 @@ object InnerTube {
      */
     suspend fun channelHome(channelId: String, name: String?, avatar: String?): ChannelHome = withContext(Dispatchers.IO) {
         val root = postAny("browse", JSONObject().put("browseId", channelId))
-        val home = parseChannelHome(root, channelId)
+        val about = root.channelAboutContinuation()?.let { token ->
+            runCatching { parseChannelAbout(postAny("browse", JSONObject().put("continuation", token))) }.getOrNull()
+        }
+        val home = parseChannelHome(root, channelId).copy(about = about)
         if (!Account.signedIn) return@withContext home
         var subscribed: Boolean? = null
         var bell: Boolean? = null
@@ -1221,6 +1253,71 @@ object InnerTube {
     }
 
     private fun absoluteUrl(url: String) = if (url.startsWith("//")) "https:$url" else url
+
+    /**
+     * The landing page has a one-line description and no links. The token for the About panel is on
+     * the "and N more links" suffix, or, when the channel has only one link, on the description's
+     * "…more". Flow reads the same two places (`channelAboutContinuation`).
+     */
+    internal fun JSONObject.channelAboutContinuation(): String? {
+        var suffix: String? = null
+        var description: String? = null
+        walk { key, obj ->
+            if (suffix == null && key == "attributionViewModel") suffix = obj.optJSONObject("suffix")?.firstContinuationToken()
+            if (description == null && key == "pageHeaderViewModel") description = obj.optJSONObject("description")?.firstContinuationToken()
+        }
+        return suffix ?: description
+    }
+
+    /** `aboutChannelViewModel` from the About continuation: description, counts, and external links. */
+    internal fun parseChannelAbout(root: JSONObject): ChannelAboutInfo? {
+        val model = root.findObject("aboutChannelViewModel") ?: return null
+        return ChannelAboutInfo(
+            description = model.text("description")?.trim()?.ifBlank { null },
+            country = model.text("country"),
+            joined = model.text("joinedDateText"),
+            views = model.text("viewCountText"),
+            videos = model.text("videoCountText"),
+            subscribers = model.text("subscriberCountText"),
+            canonical = model.optString("canonicalChannelUrl").ifBlank { null },
+            links = model.aboutLinks(),
+        )
+    }
+
+    private fun JSONObject.aboutLinks(): List<ChannelLink> {
+        val arr = optJSONArray("links") ?: return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val link = arr.optJSONObject(i)?.optJSONObject("channelExternalLinkViewModel") ?: continue
+                val title = link.text("title")?.takeIf { it.isNotBlank() } ?: continue
+                val display = link.text("link")?.takeIf { it.isNotBlank() }
+                val target = link.linkTarget() ?: display ?: continue
+                val icon = link.optJSONObject("favicon")?.collectStrings("url")?.lastOrNull()?.let(::absoluteUrl)
+                add(ChannelLink(title, display ?: title, target, icon))
+            }
+        }
+    }
+
+    /** The `urlEndpoint` under a link, with YouTube's redirect wrapper taken off. */
+    private fun JSONObject.linkTarget(): String? {
+        var url: String? = null
+        walk { _, obj ->
+            if (url == null) url = obj.optJSONObject("urlEndpoint")?.optString("url")?.ifBlank { null }?.let(::unwrapYouTubeRedirect)
+        }
+        return url
+    }
+
+    private fun unwrapYouTubeRedirect(url: String): String {
+        val q = Regex("[?&]q=([^&]+)").find(url)?.groupValues?.getOrNull(1) ?: return url
+        return runCatching { java.net.URLDecoder.decode(q, "UTF-8") }.getOrDefault(url)
+    }
+
+    private fun JSONObject.firstContinuationToken(): String? {
+        optJSONObject("continuationCommand")?.optString("token")?.ifBlank { null }?.let { return it }
+        var token: String? = null
+        walk { key, obj -> if (token == null && key == "continuationCommand") token = obj.optString("token").ifBlank { null } }
+        return token
+    }
 }
 
 // ── JSON helpers ───────────────────────────────────────────────────────────────

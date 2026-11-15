@@ -80,6 +80,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -511,9 +512,9 @@ fun PlaylistScreen(
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(Modifier.fillMaxSize()) {
         if (feed.videos.isEmpty() && !feed.loading && feed.error == null && !feed.hasMore) {
-            Column(Modifier.padding(contentPadding.withTop(top))) {
+            Column(Modifier.fillMaxSize().padding(contentPadding.withTop(top))) {
                 LargePageTitle(playlist.title, barAligned = false)
-                EmptyState(SfIcons.VideoLibrary, "Nothing here yet", "Videos you add to this playlist will show up here.")
+                EmptyLine(stringResource(R.string.ui_playlist_empty_body))
             }
         } else {
             FeedList(
@@ -749,16 +750,8 @@ fun SearchScreen(
                 body = state.error.orEmpty(),
                 action = { PillButton("Try again", { state.submit() }) },
             )
-            state.submitted.isEmpty() -> EmptyState(
-                icon = SfIcons.Explore,
-                title = "Search without the ads",
-                body = "Results play straight away, with no ads and no sign-in.",
-            )
-            state.results.isEmpty() && !state.loading -> EmptyState(
-                icon = SfIcons.History,
-                title = "Nothing found",
-                body = "No videos matched “${state.submitted}”.",
-            )
+            state.submitted.isEmpty() -> EmptyLine(stringResource(R.string.ui_search_intro_body))
+            state.results.isEmpty() && !state.loading -> EmptyLine(stringResource(R.string.ui_search_no_match, state.submitted))
             else -> {
                 val list = rememberScrollToTop(scrollToTop)
                 // A new search starts at the top. The first page arriving does not.

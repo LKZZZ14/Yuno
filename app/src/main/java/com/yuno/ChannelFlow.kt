@@ -1,6 +1,10 @@
 package com.yuno
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -14,23 +18,32 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.TrendingUp
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Tab
@@ -38,22 +51,29 @@ import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.yuno.icons.SfIcons
 
 /** Latest / Popular / Oldest are one menu. Everything else (Members only, Public, …) is a chip. */
 private val SortTitles = setOf("latest", "popular", "oldest")
@@ -118,23 +138,61 @@ internal fun ChannelFilterBar(
     palette: ArtworkPalette,
     labelOf: @Composable (String) -> String,
     onPick: (FeedChip) -> Unit,
+    searchOpen: Boolean,
+    query: String,
+    onSearchOpen: () -> Unit,
+    onSearchClose: () -> Unit,
+    onQuery: (String) -> Unit,
 ) {
     val sorts = chips.filter { it.title.lowercase() in SortTitles }
     val filters = chips.filter { it.title.lowercase() !in SortTitles }
     val chosenSort = sorts.firstOrNull { it.title == chosen?.title }
-    LazyRow(
-        modifier = Modifier.fillMaxWidth().background(palette.wash),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(searchOpen) { if (searchOpen) focus.requestFocus() }
+    Row(
+        Modifier.fillMaxWidth().background(palette.wash).padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (sorts.isNotEmpty()) {
-            item(key = "sort") {
-                SortMenu(sorts, chosenSort, palette, labelOf, onPick)
+        if (searchOpen) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQuery,
+                modifier = Modifier.weight(1f).focusRequester(focus),
+                placeholder = { Text(stringResource(R.string.channel_search_hint), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.onBackground),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = palette.onBackground,
+                    unfocusedTextColor = palette.onBackground,
+                    focusedBorderColor = palette.onBackgroundVariant,
+                    unfocusedBorderColor = palette.onBackgroundVariant,
+                    cursorColor = palette.onBackground,
+                    focusedPlaceholderColor = palette.onBackgroundVariant,
+                    unfocusedPlaceholderColor = palette.onBackgroundVariant,
+                ),
+            )
+            IconButton(onClick = onSearchClose) {
+                Icon(SfIcons.Close, stringResource(R.string.ui_clear_search), tint = palette.onBackgroundVariant)
             }
-        }
-        items(filters, key = { it.title }) { chip ->
-            val on = chosen?.title == chip.title
-            FlowStyleChip(labelOf(chip.title), on, palette) { onPick(chip) }
+        } else {
+            LazyRow(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (sorts.isNotEmpty()) {
+                    item(key = "sort") {
+                        SortMenu(sorts, chosenSort, palette, labelOf, onPick)
+                    }
+                }
+                items(filters, key = { it.title }) { chip ->
+                    FlowStyleChip(labelOf(chip.title), chosen?.title == chip.title, palette) { onPick(chip) }
+                }
+            }
+            IconButton(onClick = onSearchOpen) {
+                Icon(SfIcons.Search, stringResource(R.string.channel_search_hint), tint = palette.onBackgroundVariant)
+            }
         }
     }
 }
@@ -149,22 +207,54 @@ private fun SortMenu(
 ) {
     var open by remember { mutableStateOf(false) }
     val active = chosen ?: sorts.firstOrNull { it.token == null } ?: sorts.first()
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val plate = (if (dark) Color.Black else Color.White).copy(alpha = 0.5f)
+    val hairline = if (dark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f)
+    val menuShape = RoundedCornerShape(30.dp)
     Box {
         FlowStyleChip(labelOf(active.title), selected = chosen != null, palette = palette, dropdown = true) { open = true }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            shape = menuShape,
+            containerColor = plate,
+            tonalElevation = 0.dp,
+            shadowElevation = 24.dp,
+            border = BorderStroke(0.5.dp, hairline),
+        ) {
             sorts.forEach { chip ->
-                val on = chip.title == active.title
-                DropdownMenuItem(
-                    text = { Text(labelOf(chip.title)) },
-                    onClick = { open = false; onPick(chip) },
-                    leadingIcon = if (on) {
-                        { Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                    } else {
-                        null
-                    },
-                )
+                SortMenuRow(labelOf(chip.title), selected = chip.title == active.title, dark = dark) {
+                    open = false
+                    onPick(chip)
+                }
             }
         }
+    }
+}
+
+/** One row of the sort menu, in the same plate, type and press as the hold-on-video menu. */
+@Composable
+private fun SortMenuRow(label: String, selected: Boolean, dark: Boolean, onClick: () -> Unit) {
+    val labelColor = if (dark) Color.White else Color(0xFF1A1A1A)
+    val pressedFill = if (dark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.07f)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (pressed) pressedFill else Color.Transparent)
+            .clickable(interaction, indication = null, onClick = onClick)
+            .heightIn(min = 44.dp)
+            .padding(start = 12.dp, end = 14.dp, top = 11.dp, bottom = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(28.dp), contentAlignment = Alignment.Center) {
+            if (selected) Icon(Icons.Rounded.Check, null, tint = labelColor, modifier = Modifier.size(21.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(label, color = labelColor, fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -194,18 +284,40 @@ private fun FlowStyleChip(label: String, selected: Boolean, palette: ArtworkPale
             selectedLeadingIconColor = ink,
             selectedTrailingIconColor = ink,
         ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = palette.onBackgroundVariant,
+            selectedBorderColor = palette.onBackgroundVariant,
+            borderWidth = 1.dp,
+            selectedBorderWidth = 1.dp,
+        ),
     )
 }
 
 /**
- * Flow's About panel: the description, then one row per fact the channel actually has.
+ * Flow's About panel: the description, then the channel's links, then one row per fact it actually has.
  */
 @Composable
-internal fun ChannelAboutPage(description: String, handle: String?, subscribers: String?, palette: ArtworkPalette) {
+internal fun ChannelAboutPage(
+    description: String,
+    handle: String?,
+    subscribers: String?,
+    about: ChannelAboutInfo?,
+    palette: ArtworkPalette,
+) {
+    val uriHandler = LocalUriHandler.current
     val rows = listOfNotNull(
+        about?.canonical?.let { Icons.Outlined.Language to it.removePrefix("https://").removePrefix("http://") },
         handle?.let { Icons.Outlined.Person to it },
         subscribers?.let { Icons.Outlined.Person to it },
+        about?.videos?.let { Icons.Outlined.VideoLibrary to it },
+        about?.views?.let { Icons.AutoMirrored.Outlined.TrendingUp to it },
+        about?.country?.let { Icons.Outlined.Public to it },
+        about?.joined?.let { Icons.Outlined.CalendarMonth to it },
     )
+    val links = about?.links.orEmpty()
+    val line = palette.onBackgroundVariant.copy(alpha = 0.35f)
     Column(
         Modifier.fillMaxWidth().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -216,8 +328,31 @@ internal fun ChannelAboutPage(description: String, handle: String?, subscribers:
                 Text(description, style = MaterialTheme.typography.bodyMedium, color = palette.onBackground)
             }
         }
+        if (links.isNotEmpty()) {
+            if (description.isNotBlank()) HorizontalDivider(color = line, thickness = 0.5.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(stringResource(R.string.channel_about_links), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = palette.onBackground)
+                links.forEach { link ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { runCatching { uriHandler.openUri(link.url) } },
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (link.icon.isNullOrBlank()) {
+                            Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(24.dp), tint = palette.onBackgroundVariant)
+                        } else {
+                            AsyncImage(model = link.icon, contentDescription = null, modifier = Modifier.size(24.dp), contentScale = ContentScale.Fit)
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(link.title, style = MaterialTheme.typography.bodyMedium, color = palette.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(link.display, style = MaterialTheme.typography.bodyMedium, color = palette.onBackgroundVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
         if (rows.isNotEmpty()) {
-            if (description.isNotBlank()) HorizontalDivider(color = palette.onBackgroundVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
+            if (description.isNotBlank() || links.isNotEmpty()) HorizontalDivider(color = line, thickness = 0.5.dp)
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(stringResource(R.string.channel_about_more), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = palette.onBackground)
                 rows.forEach { (icon, value) ->

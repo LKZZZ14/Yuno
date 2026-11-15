@@ -91,6 +91,39 @@ class ChannelParseTest {
         assertNotNull(playlists[0].thumbnail)
     }
 
+    @Test fun aboutContinuation() {
+        val token = with(InnerTube) { fixture("channel_home").channelAboutContinuation() }
+        assertNotNull(token)
+        assertTrue(token!!.isNotBlank())
+    }
+
+    @Test fun aboutLinks() {
+        val about = InnerTube.parseChannelAbout(JSONObject("""
+            {"onResponseReceivedEndpoints":[{"appendContinuationItemsAction":{"continuationItems":[{"aboutChannelViewModel":{
+              "description":"A channel",
+              "country":"United States",
+              "joinedDateText":{"content":"Joined Jan 1, 2010"},
+              "viewCountText":"1,000,000 views",
+              "videoCountText":"100 videos",
+              "subscriberCountText":"50K subscribers",
+              "canonicalChannelUrl":"http://www.youtube.com/@veritasium",
+              "links":[{"channelExternalLinkViewModel":{
+                "title":{"content":"Site"},
+                "link":{"content":"veritasium.com","commandRuns":[{"onTap":{"innertubeCommand":{"urlEndpoint":{"url":"https://www.youtube.com/redirect?q=https%3A%2F%2Fveritasium.com"}}}}]},
+                "favicon":{"sources":[{"url":"https://www.google.com/s2/favicons?domain=veritasium.com"}]}
+              }}]
+            }}]}}]}
+        """.trimIndent()))
+        assertNotNull(about)
+        assertEquals("A channel", about!!.description)
+        assertEquals("United States", about.country)
+        assertEquals("Joined Jan 1, 2010", about.joined)
+        assertEquals(1, about.links.size)
+        assertEquals("Site", about.links[0].title)
+        assertEquals("veritasium.com", about.links[0].display)
+        assertEquals("https://veritasium.com", about.links[0].url)
+    }
+
     @Test fun tabParams() {
         assertEquals(ChannelTab.Videos, InnerTube.tabOfParams("EgZ2aWRlb3MYAyAAcAPyBg0KCzoEIgIIBKIBAggB"))
         assertEquals(ChannelTab.Shorts, InnerTube.tabOfParams("EgZzaG9ydHPyBgUKA5oBAA%3D%3D"))

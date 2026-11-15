@@ -4,12 +4,14 @@ import android.util.Log
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,28 +21,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -151,6 +147,70 @@ class ChannelState(val url: String, private val scope: CoroutineScope) {
     val postsHaveMore get() = postsNext != null
     val postsStarted get() = postsLoaded
 
+    /** The Videos tab's search field. A query replaces that list until the field is closed. */
+    var searchOpen by mutableStateOf(false)
+        private set
+    var searchQuery by mutableStateOf("")
+        private set
+    var searchVideos by mutableStateOf<List<VideoItem>>(emptyList())
+        private set
+    var searchLoading by mutableStateOf(false)
+        private set
+    var searchError by mutableStateOf<String?>(null)
+        private set
+    private var searchNext: String? = null
+    private var searchJob: Job? = null
+    val searchHasMore get() = searchNext != null
+
+    fun openSearch() { searchOpen = true }
+
+    fun closeSearch() {
+        searchJob?.cancel()
+        searchOpen = false
+        searchQuery = ""
+        searchVideos = emptyList()
+        searchLoading = false
+        searchError = null
+        searchNext = null
+    }
+
+    fun updateSearch(query: String) {
+        searchQuery = query
+        searchJob?.cancel()
+        val q = query.trim()
+        if (q.isEmpty()) {
+            searchVideos = emptyList()
+            searchLoading = false
+            searchError = null
+            searchNext = null
+            return
+        }
+        searchVideos = emptyList()
+        searchNext = null
+        searchLoading = true
+        searchError = null
+        searchJob = scope.launch {
+            kotlinx.coroutines.delay(400)
+            if (details == null) return@launch
+            runCatching { filled(InnerTube.channelSearch(channelId(), q)) }
+                .onSuccess { page -> searchVideos = page.videos; searchNext = page.next }
+                .onFailure { if (it is CancellationException) throw it; searchError = YouTube.friendlyError(it); searchVideos = emptyList(); searchNext = null }
+            searchLoading = false
+        }
+    }
+
+    private fun loadMoreSearch() {
+        val token = searchNext ?: return
+        if (searchLoading || details == null) return
+        searchLoading = true
+        searchJob = scope.launch {
+            runCatching { filled(InnerTube.channelSearch(channelId(), searchQuery.trim(), token)) }
+                .onSuccess { page -> searchVideos = (searchVideos + page.videos).distinctBy { it.id }; searchNext = page.next }
+                .onFailure { if (it is CancellationException) throw it; searchError = YouTube.friendlyError(it) }
+            searchLoading = false
+        }
+    }
+
     /** Home's shelves as shown: Shorts shelves only while Shorts are on. */
     val shelves: List<ChannelShelf>
         get() = home?.shelves.orEmpty().filter { ShortsSetting.enabled || it.shorts.isEmpty() }
@@ -176,7 +236,9 @@ class ChannelState(val url: String, private val scope: CoroutineScope) {
 
     private fun hasAbout(): Boolean {
         val d = details ?: return false
-        return d.description.isNotBlank() || !home?.handle.isNullOrBlank() || d.subscribers > 0
+        val about = home?.about
+        return d.description.isNotBlank() || !home?.handle.isNullOrBlank() || d.subscribers > 0 ||
+            about?.description?.isNotBlank() == true || about?.links?.isNotEmpty() == true
     }
 
     val current: ChannelTab get() = tabs.let { t -> tab.takeIf { it in t } ?: t.first() }
@@ -232,6 +294,10 @@ class ChannelState(val url: String, private val scope: CoroutineScope) {
     }
 
     fun loadMore() {
+        if (searchOpen && searchQuery.isNotBlank()) {
+            loadMoreSearch()
+            return
+        }
         when (current) {
             ChannelTab.Videos -> videos.loadMore()
             ChannelTab.Shorts -> shorts.loadMore()
@@ -339,11 +405,19 @@ private fun ChannelPage(
     val barHeight = topBarHeight()
     val tabs = state.tabs
     val scope = rememberCoroutineScope()
+    // Until the page arrives the only tab is a placeholder, so the pager must not treat it as the
+    // channel's Videos tab or remember it as the one the user opened.
     val pager = key(tabs) {
-        rememberPagerState(initialPage = tabs.indexOf(state.current).coerceAtLeast(0), pageCount = { tabs.size.coerceAtLeast(1) })
+        val start = if (state.home == null) 0 else tabs.indexOf(state.current).coerceAtLeast(0)
+        rememberPagerState(initialPage = start, pageCount = { tabs.size.coerceAtLeast(1) })
     }
     val settled = tabs.getOrNull(pager.settledPage)
-    LaunchedEffect(settled) { settled?.let { state.show(it); state.ensureLoaded(it) } }
+    LaunchedEffect(settled, state.details, state.home, state.loading) {
+        if (state.loading || state.details == null) return@LaunchedEffect
+        val t = settled ?: return@LaunchedEffect
+        state.show(t)
+        state.ensureLoaded(t)
+    }
     fun pick(t: ChannelTab) {
         val index = tabs.indexOf(t)
         if (index < 0 || index == pager.currentPage) return
@@ -481,9 +555,16 @@ private fun ChannelTopFade(list: LazyListState, page: Color, modifier: Modifier 
 }
 
 /**
- * Flow's channel body: the header collapses, the tab row sticks, and each tab is its own page
- * you can swipe to.
+ * The header is the first thing in the list, so it leaves with the same scroll as the rows.
+ * The tab spacer sticks, which is the space the tab row (drawn above the pager) sits in.
  */
+@OptIn(ExperimentalFoundationApi::class)
+private fun LazyListScope.channelScrollHead(header: androidx.compose.ui.unit.Dp, tabs: androidx.compose.ui.unit.Dp) {
+    item(key = "channel-head") { Spacer(Modifier.height(header)) }
+    stickyHeader(key = "channel-tabs") { Spacer(Modifier.height(tabs)) }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChannelPagerBody(
     state: ChannelState,
@@ -503,38 +584,47 @@ private fun ChannelPagerBody(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     var headerPx by remember { mutableFloatStateOf(0f) }
-    var stickyPx by remember { mutableFloatStateOf(0f) }
-    var offsetPx by remember { mutableFloatStateOf(0f) }
-    val top = with(density) { (headerPx + stickyPx + offsetPx).coerceAtLeast(stickyPx).toDp() }
+    var tabRowPx by remember { mutableFloatStateOf(0f) }
+    val headerDp = with(density) { headerPx.toDp() }
+    val tabsDp = with(density) { tabRowPx.toDp() }
     val bottom = contentPadding.calculateBottomPadding()
-    val connection = remember(headerPx) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (available.y >= 0f) return Offset.Zero
-                val previous = offsetPx
-                val next = (previous + available.y).coerceIn(-headerPx, 0f)
-                offsetPx = next
-                return Offset(0f, next - previous)
-            }
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (available.y <= 0f) return Offset.Zero
-                val previous = offsetPx
-                val next = (previous + available.y).coerceIn(-headerPx, 0f)
-                offsetPx = next
-                return Offset(0f, next - previous)
-            }
-        }
-    }
+    val listPad = PaddingValues(bottom = bottom)
+    val homeList = rememberLazyListState()
     val videosList = state.list
-    val shortsList = rememberLazyGridState()
+    val shortsList = rememberLazyListState()
     val playlistsList = rememberLazyListState()
     val postsList = rememberLazyListState()
-    val padding = PaddingValues(top = top, bottom = bottom)
-    Box(Modifier.fillMaxSize().padding(top = barHeight).clipToBounds().nestedScroll(connection)) {
+    val aboutList = rememberLazyListState()
+    // The header moves exactly as far as the open page has scrolled. One scroll, no second gesture.
+    // A sideways swipe keeps that offset until the new page is the one on screen.
+    val liveOffset by remember {
+        derivedStateOf {
+            val px = headerPx
+            if (px <= 0f) return@derivedStateOf 0f
+            val list = when (tabs.getOrNull(pager.currentPage)) {
+                ChannelTab.Home -> homeList
+                ChannelTab.Videos -> videosList
+                ChannelTab.Shorts -> shortsList
+                ChannelTab.Playlists -> playlistsList
+                ChannelTab.Posts -> postsList
+                ChannelTab.About, null -> aboutList
+            }
+            val scrolled = if (list.firstVisibleItemIndex > 0) px else list.firstVisibleItemScrollOffset.toFloat()
+            -scrolled.coerceIn(0f, px)
+        }
+    }
+    var offsetPx by remember { mutableFloatStateOf(0f) }
+    if (!pager.isScrollInProgress) offsetPx = liveOffset
+    val lift = headerDp + tabsDp
+    Box(Modifier.fillMaxSize().padding(top = barHeight).clipToBounds()) {
         HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { index ->
             val tab = tabs.getOrNull(index) ?: return@HorizontalPager
+            // The page that's on screen loads itself. Settling on it is not the only chance:
+            // the first pass can run before the channel has loaded, and it must not be the last.
+            LaunchedEffect(tab, state.details) { if (state.details != null) state.ensureLoaded(tab) }
             when (tab) {
-                ChannelTab.Home -> LazyColumn(Modifier.fillMaxSize(), contentPadding = padding) {
+                ChannelTab.Home -> LazyColumn(Modifier.fillMaxSize(), state = homeList, contentPadding = listPad) {
+                    channelScrollHead(headerDp, tabsDp)
                     homeTab(state, columns, palette, onOpen, onOpenShorts, onOpenPlaylist) { link ->
                         when (link) {
                             is ShelfLink.Tab -> pick(link.tab)
@@ -544,40 +634,89 @@ private fun ChannelPagerBody(
                 }
                 ChannelTab.Videos -> {
                     val feed = state.videos
-                    LazyColumn(Modifier.fillMaxSize(), state = videosList, contentPadding = padding) {
-                        items(feed.videos, key = { it.id }) { video -> ChannelVideoRow(video, palette) { onOpen(video) } }
-                        feedTail(feed.loading || feed.hasMore || feed.waiting, feed.error.takeIf { feed.videos.isEmpty() }, feed::refresh,
-                            empty = if (feed.loadedEmpty) R.string.ui_channel_no_videos else null, alone = feed.videos.isEmpty())
+                    val searching = state.searchOpen && state.searchQuery.isNotBlank()
+                    val shown = if (searching) state.searchVideos else feed.videos
+                    LazyColumn(Modifier.fillMaxSize(), state = videosList, contentPadding = listPad) {
+                        channelScrollHead(headerDp, tabsDp)
+                        stickyHeader(key = "channel-filters") {
+                            ChannelFilterBar(
+                                chips = feed.chips,
+                                chosen = feed.chip,
+                                palette = palette,
+                                labelOf = { sortLabel(it) },
+                                onPick = feed::selectChip,
+                                searchOpen = state.searchOpen,
+                                query = state.searchQuery,
+                                onSearchOpen = state::openSearch,
+                                onSearchClose = state::closeSearch,
+                                onQuery = state::updateSearch,
+                            )
+                        }
+                        items(shown, key = { it.id }) { video -> ChannelVideoRow(video, palette) { onOpen(video) } }
+                        if (searching) feedTail(
+                            state.searchLoading || state.searchHasMore,
+                            state.searchError.takeIf { shown.isEmpty() },
+                            { state.updateSearch(state.searchQuery) },
+                            empty = if (!state.searchLoading && state.searchError == null && shown.isEmpty()) R.string.channel_search_empty else null,
+                            alone = shown.isEmpty(),
+                            phrase = palette.onBackgroundVariant,
+                            lift = lift,
+                        ) else feedTail(
+                            feed.loading || feed.hasMore || feed.waiting,
+                            feed.error.takeIf { feed.videos.isEmpty() },
+                            feed::refresh,
+                            empty = if (feed.loadedEmpty) R.string.ui_channel_no_videos else null,
+                            alone = feed.videos.isEmpty(),
+                            phrase = palette.onBackgroundVariant,
+                            lift = lift,
+                        )
                     }
-                    if (index == pager.settledPage) ListLoadMore(videosList, feed.videos.isNotEmpty()) { state.loadMore() }
+                    if (index == pager.settledPage) ListLoadMore(videosList, shown.isNotEmpty()) { state.loadMore() }
                 }
                 ChannelTab.Shorts -> {
                     val feed = state.shorts
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(160.dp),
-                        modifier = Modifier.fillMaxSize(),
-                        state = shortsList,
-                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = top, bottom = bottom),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        itemsIndexed(feed.videos, key = { _, s -> s.id }) { i, s ->
-                            ShortTile(s, Modifier.fillMaxWidth(), palette) { onOpenShorts(state.shortsFrom(i)) }
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val cols = ((maxWidth + 12.dp) / (160.dp + 12.dp)).toInt().coerceAtLeast(1)
+                        LazyColumn(Modifier.fillMaxSize(), state = shortsList, contentPadding = listPad) {
+                            channelScrollHead(headerDp, tabsDp)
+                            items(feed.videos.chunked(cols), key = { row -> row.first().id }) { row ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    row.forEach { s ->
+                                        val at = feed.videos.indexOf(s)
+                                        ShortTile(s, Modifier.weight(1f), palette) { onOpenShorts(state.shortsFrom(at)) }
+                                    }
+                                    repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+                                }
+                            }
+                            feedTail(
+                                feed.loading || feed.hasMore || feed.waiting,
+                                feed.error.takeIf { feed.videos.isEmpty() },
+                                feed::refresh,
+                                empty = if (feed.loadedEmpty) R.string.ui_channel_no_shorts else null,
+                                alone = feed.videos.isEmpty(),
+                                phrase = palette.onBackgroundVariant,
+                                lift = lift,
+                            )
                         }
                     }
-                    if (index == pager.settledPage) GridLoadMore(shortsList, feed.videos.isNotEmpty()) { state.loadMore() }
+                    if (index == pager.settledPage) ListLoadMore(shortsList, feed.videos.isNotEmpty()) { state.loadMore() }
                 }
                 ChannelTab.Playlists -> {
-                    LazyColumn(Modifier.fillMaxSize(), state = playlistsList, contentPadding = padding) {
+                    LazyColumn(Modifier.fillMaxSize(), state = playlistsList, contentPadding = listPad) {
+                        channelScrollHead(headerDp, tabsDp)
                         items(state.playlists, key = { it.id }) { p -> PlaylistRow(p, palette) { onOpenPlaylist(p) } }
                         feedTail(state.playlistsLoading || state.playlistsHaveMore || !state.playlistsTried, state.playlistsError.takeIf { state.playlists.isEmpty() },
                             { state.loadPlaylists(more = false) }, empty = if (state.playlistsEmpty) R.string.ui_channel_no_playlists else null,
-                            alone = state.playlists.isEmpty())
+                            alone = state.playlists.isEmpty(), phrase = palette.onBackgroundVariant, lift = lift)
                     }
                     if (index == pager.settledPage) ListLoadMore(playlistsList, state.playlists.isNotEmpty()) { state.loadMore() }
                 }
                 ChannelTab.Posts -> {
-                    LazyColumn(Modifier.fillMaxSize(), state = postsList, contentPadding = padding) {
+                    LazyColumn(Modifier.fillMaxSize(), state = postsList, contentPadding = listPad) {
+                        channelScrollHead(headerDp, tabsDp)
                         items(state.posts, key = { it.id }) { post -> ChannelPostCard(post, palette) }
                         feedTail(
                             state.postsLoading || state.postsHaveMore || !state.postsStarted,
@@ -585,17 +724,21 @@ private fun ChannelPagerBody(
                             { state.loadPosts(more = false) },
                             empty = if (state.postsStarted && !state.postsLoading && state.postsError == null && state.posts.isEmpty()) R.string.channel_posts_empty else null,
                             alone = state.posts.isEmpty(),
+                            phrase = palette.onBackgroundVariant,
+                            lift = lift,
                         )
                     }
                     if (index == pager.settledPage) ListLoadMore(postsList, state.posts.isNotEmpty()) { state.loadMore() }
                 }
-                ChannelTab.About -> LazyColumn(Modifier.fillMaxSize(), contentPadding = padding) {
+                ChannelTab.About -> LazyColumn(Modifier.fillMaxSize(), state = aboutList, contentPadding = listPad) {
+                    channelScrollHead(headerDp, tabsDp)
                     item {
                         ChannelAboutPage(
-                            d.description,
-                            state.home?.handle,
-                            if (d.subscribers > 0) subscribersLine(d.subscribers) else null,
-                            palette,
+                            description = state.home?.about?.description?.takeIf { it.isNotBlank() } ?: d.description,
+                            handle = state.home?.handle,
+                            subscribers = state.home?.about?.subscribers ?: if (d.subscribers > 0) subscribersLine(d.subscribers) else null,
+                            about = state.home?.about,
+                            palette = palette,
                         )
                     }
                 }
@@ -605,15 +748,11 @@ private fun ChannelPagerBody(
             Box(Modifier.fillMaxWidth().background(palette.wash).onSizeChanged { headerPx = it.height.toFloat() }) {
                 ChannelName(state, d, palette, onMessage)
             }
-            Column(Modifier.fillMaxWidth().background(palette.wash).onSizeChanged { stickyPx = it.height.toFloat() }) {
-                if (tabs.isNotEmpty()) {
+            if (tabs.isNotEmpty()) {
+                Box(Modifier.fillMaxWidth().background(palette.wash).onSizeChanged { tabRowPx = it.height.toFloat() }) {
                     ChannelTabRow(pager.currentPage, tabs.map { tabLabel(it) }, palette) { index ->
                         scope.launch { pager.animateScrollToPage(index) }
                     }
-                }
-                val onVideos = tabs.getOrNull(pager.settledPage) == ChannelTab.Videos
-                if (onVideos && state.videos.chips.size > 1) {
-                    ChannelFilterBar(state.videos.chips, state.videos.chip, palette, { sortLabel(it) }) { state.videos.selectChip(it) }
                 }
             }
         }
@@ -628,12 +767,18 @@ private fun ListLoadMore(list: LazyListState, ready: Boolean, onMore: () -> Unit
     LaunchedEffect(nearEnd, ready) { if (nearEnd && ready) onMore() }
 }
 
+/** One line, in the middle of the page. Empty tabs use this instead of an icon and a title. */
 @Composable
-private fun GridLoadMore(list: androidx.compose.foundation.lazy.grid.LazyGridState, ready: Boolean, onMore: () -> Unit) {
-    val nearEnd by remember(list) {
-        derivedStateOf { (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= list.layoutInfo.totalItemsCount - 4 }
+private fun LazyItemScope.CenteredPhrase(text: String, color: Color, lift: androidx.compose.ui.unit.Dp) {
+    Box(Modifier.fillParentMaxHeight(), contentAlignment = Alignment.Center) {
+        Text(
+            text,
+            Modifier.padding(horizontal = 32.dp).offset(y = -lift / 2),
+            color = color,
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+        )
     }
-    LaunchedEffect(nearEnd, ready) { if (nearEnd && ready) onMore() }
 }
 
 /** "Subscribe" / "Subscribed", in the artist page's glass pill. Words only. */
@@ -719,7 +864,15 @@ private fun LazyListScope.homeTab(
  * While the tab has nothing yet ([alone]) it takes the page's height, so switching to an empty
  * tab does not pull the list back up to the profile.
  */
-private fun LazyListScope.feedTail(more: Boolean, error: String?, retry: () -> Unit, empty: Int?, alone: Boolean) {
+private fun LazyListScope.feedTail(
+    more: Boolean,
+    error: String?,
+    retry: () -> Unit,
+    empty: Int?,
+    alone: Boolean,
+    phrase: Color,
+    lift: androidx.compose.ui.unit.Dp,
+) {
     when {
         error != null -> item {
             Box(if (alone) Modifier.fillParentMaxHeight() else Modifier) { EmptyState(
@@ -729,11 +882,7 @@ private fun LazyListScope.feedTail(more: Boolean, error: String?, retry: () -> U
                 action = { PillButton(stringResource(R.string.ui_try_again), retry) },
             ) }
         }
-        empty != null -> item {
-            Box(if (alone) Modifier.fillParentMaxHeight() else Modifier) {
-                EmptyState(icon = Icons.Rounded.VideoLibrary, title = stringResource(R.string.ui_playlist_empty_title), body = stringResource(empty))
-            }
-        }
+        empty != null -> item { CenteredPhrase(stringResource(empty), phrase, lift) }
         more -> item { if (alone) FeedSkeletons() else FeedSkeletons(1) }
     }
 }

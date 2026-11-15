@@ -11,8 +11,11 @@
     <string name="channel_tab_about">About</string>
     <string name="channel_about_heading">About</string>
     <string name="channel_about_more">More info</string>
+    <string name="channel_about_links">Links</string>
     <string name="channel_post_more">Read more</string>
     <string name="channel_posts_empty">No posts</string>
+    <string name="channel_search_hint">Search this channel</string>
+    <string name="channel_search_empty">No videos</string>
     <string name="channel_posts_failed">Couldn\'t load posts</string>
 
     <!-- Self-update: the Update pill in Home's header, beside the profile picture. Short (~10 characters). -->

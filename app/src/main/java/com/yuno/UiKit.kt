@@ -404,6 +404,21 @@ fun ResumeBar(videoId: String, modifier: Modifier = Modifier) {
 
 // ── Empty / error states ───────────────────────────────────────────────────────
 
+/** One line in the middle of the page. Empty pages use this. */
+@Composable
+fun EmptyLine(text: String, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(
+            text,
+            Modifier.padding(horizontal = 32.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
 @Composable
 fun EmptyState(
     icon: ImageVector,
