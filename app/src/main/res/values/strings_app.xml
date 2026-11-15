@@ -7,6 +7,13 @@
     <string name="app_tab_shorts">Shorts</string>
     <string name="app_tab_search">Search</string>
     <string name="app_tab_library">Library</string>
+    <string name="channel_tab_posts">Posts</string>
+    <string name="channel_tab_about">About</string>
+    <string name="channel_about_heading">About</string>
+    <string name="channel_about_more">More info</string>
+    <string name="channel_post_more">Read more</string>
+    <string name="channel_posts_empty">No posts</string>
+    <string name="channel_posts_failed">Couldn\'t load posts</string>
 
     <!-- Self-update: the Update pill in Home's header, beside the profile picture. Short (~10 characters). -->
     <string name="app_update_pill">Update</string>

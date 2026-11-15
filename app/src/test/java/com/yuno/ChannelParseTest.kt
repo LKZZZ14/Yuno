@@ -18,7 +18,7 @@ class ChannelParseTest {
 
     @Test fun homeTabs() {
         val home = InnerTube.parseChannelHome(fixture("channel_home"), veritasium)
-        assertEquals(listOf(ChannelTab.Home, ChannelTab.Videos, ChannelTab.Shorts, ChannelTab.Playlists), home.tabs.keys.toList())
+        assertEquals(listOf(ChannelTab.Home, ChannelTab.Videos, ChannelTab.Shorts, ChannelTab.Playlists, ChannelTab.Posts), home.tabs.keys.toList())
         assertEquals("EgZ2aWRlb3PyBgQKAjoA", home.tabs[ChannelTab.Videos])
         assertEquals("AF8d72mA41M", home.featured?.id)
         assertEquals("@veritasium", home.handle)
@@ -95,7 +95,7 @@ class ChannelParseTest {
         assertEquals(ChannelTab.Videos, InnerTube.tabOfParams("EgZ2aWRlb3MYAyAAcAPyBg0KCzoEIgIIBKIBAggB"))
         assertEquals(ChannelTab.Shorts, InnerTube.tabOfParams("EgZzaG9ydHPyBgUKA5oBAA%3D%3D"))
         assertEquals(ChannelTab.Playlists, InnerTube.tabOfParams("EglwbGF5bGlzdHPyBgoKCEIGCgIQaCIA"))
-        assertNull("posts", InnerTube.tabOfParams("EgVwb3N0c_IGBAoCSgA%3D"))
+        assertEquals(ChannelTab.Posts, InnerTube.tabOfParams("EgVwb3N0c_IGBAoCSgA%3D"))
         assertNull(InnerTube.tabOfParams(null))
     }
 }

@@ -49,11 +49,28 @@ data class FeedChip(val title: String, val token: String?)
 @Immutable
 data class PlaylistPage(val playlists: List<PlaylistRef>, val next: String?)
 
+/** One community post on a channel's Posts tab. */
+@Immutable
+data class CommunityPost(
+    val id: String,
+    val author: String,
+    val avatar: String?,
+    val text: String,
+    val image: String?,
+    val ago: String,
+    val likes: String,
+    val comments: String,
+)
+
+data class PostsPage(val posts: List<CommunityPost>, val next: String?)
+
 /**
- * The channel page's tabs Skipii shows (GitHub #53), by YouTube's English titles. Posts, Store,
- * Playables, Live and the rest hold nothing Skipii plays.
+ * The channel page's tabs, by YouTube's English titles. About is not one of those tabs;
+ * the page appends it. Posts is YouTube's Community tab.
  */
-enum class ChannelTab(val title: String) { Home("Home"), Videos("Videos"), Shorts("Shorts"), Playlists("Playlists") }
+enum class ChannelTab(val title: String) {
+    Home("Home"), Videos("Videos"), Shorts("Shorts"), Playlists("Playlists"), Posts("Posts"), About("About"),
+}
 
 /** Where a channel shelf's "See all" goes: one of the channel's tabs, or a playlist page. */
 sealed interface ShelfLink {
@@ -404,6 +421,44 @@ object InnerTube {
         else JSONObject().put("browseId", channelId).put("params", params)
         val root = postAny("browse", body)
         PlaylistPage(parsePlaylists(root), parseFeed(root).next)
+    }
+
+    /** A channel's Posts tab (community), a page at a time. */
+    suspend fun channelPosts(channelId: String, params: String, continuation: String? = null, author: String, avatar: String?): PostsPage = withContext(Dispatchers.IO) {
+        val body = if (continuation != null) JSONObject().put("continuation", continuation)
+        else JSONObject().put("browseId", channelId).put("params", params)
+        parseCommunityPosts(postAny("browse", body), author, avatar)
+    }
+
+    /** `backstagePostRenderer` rows, the same posts Flow's community page reads. */
+    internal fun parseCommunityPosts(root: JSONObject, author: String, avatar: String?): PostsPage {
+        val posts = LinkedHashMap<String, CommunityPost>()
+        var next: String? = null
+        root.walk { key, obj ->
+            if (key == "backstagePostRenderer" || key == "postRenderer") {
+                val id = obj.optString("postId").ifBlank { return@walk }
+                val image = obj.optJSONObject("backstageAttachment")?.collectStrings("url")
+                    ?.lastOrNull { it.contains("ytimg") || it.contains("ggpht") }?.let(::absoluteUrl)
+                posts.putIfAbsent(id, CommunityPost(
+                    id = id,
+                    author = obj.text("authorText")?.ifBlank { null } ?: author,
+                    avatar = obj.optJSONObject("authorThumbnail")?.thumbnails()?.lastOrNull()?.let(::absoluteUrl) ?: avatar,
+                    text = obj.text("contentText").orEmpty(),
+                    image = image,
+                    ago = obj.text("publishedTimeText").orEmpty(),
+                    likes = obj.text("voteCount").orEmpty(),
+                    comments = obj.optJSONObject("actionButtons")
+                        ?.optJSONObject("commentActionButtonsRenderer")
+                        ?.optJSONObject("replyButton")
+                        ?.optJSONObject("buttonRenderer")
+                        ?.text("text").orEmpty(),
+                ))
+            }
+            if ((key == "continuationItemRenderer" || key == "continuationItemViewModel") && next == null) {
+                next = obj.collectStrings("token").firstOrNull()
+            }
+        }
+        return PostsPage(posts.values.toList(), next)
     }
 
     suspend fun subscriptionsFeed(next: String? = null): FeedPage = withContext(Dispatchers.IO) {
@@ -880,7 +935,11 @@ object InnerTube {
         val list = root.optJSONObject("contents")?.optJSONObject("twoColumnBrowseResultsRenderer")?.optJSONArray("tabs")
         for (i in 0 until (list?.length() ?: 0)) {
             val tab = list?.optJSONObject(i)?.optJSONObject("tabRenderer") ?: continue
-            val kind = ChannelTab.entries.firstOrNull { it.title.equals(tab.optString("title"), ignoreCase = true) } ?: continue
+            val raw = tab.optString("title")
+            val kind = when (raw.lowercase()) {
+                "posts", "community" -> ChannelTab.Posts
+                else -> ChannelTab.entries.firstOrNull { it != ChannelTab.About && it.title.equals(raw, ignoreCase = true) }
+            } ?: continue
             val params = tab.optJSONObject("endpoint")?.optJSONObject("browseEndpoint")?.optString("params")?.ifBlank { null } ?: continue
             tabs.putIfAbsent(kind, params)
             if (kind == ChannelTab.Home) homeContent = tab.optJSONObject("content")
@@ -961,6 +1020,7 @@ object InnerTube {
             "videos" -> ChannelTab.Videos
             "shorts" -> ChannelTab.Shorts
             "playlists" -> ChannelTab.Playlists
+            "posts", "community" -> ChannelTab.Posts
             "featured" -> ChannelTab.Home
             else -> null
         }
