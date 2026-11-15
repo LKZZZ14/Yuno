@@ -85,7 +85,15 @@ data class PostsPage(val posts: List<CommunityPost>, val next: String?)
  * the page appends it. Posts is YouTube's Community tab.
  */
 enum class ChannelTab(val title: String) {
-    Home("Home"), Videos("Videos"), Shorts("Shorts"), Playlists("Playlists"), Posts("Posts"), About("About"),
+    Home("Home"),
+    Videos("Videos"),
+    Shorts("Shorts"),
+    Live("Live"),
+    Shows("Shows"),
+    Podcasts("Podcasts"),
+    Playlists("Playlists"),
+    Posts("Posts"),
+    About("About"),
 }
 
 /** Where a channel shelf's "See all" goes: one of the channel's tabs, or a playlist page. */
@@ -435,6 +443,20 @@ object InnerTube {
         if (token == null) page.copy(chips = parseHomeChips(root), filters = parseChannelFilters(root)) else page
     }
 
+    /** A channel's Live tab: the same browse as Videos, with the streams kept in. */
+    suspend fun channelLive(channelId: String, params: String, continuation: String? = null): FeedPage = withContext(Dispatchers.IO) {
+        val browse = continuation?.takeIf { it.startsWith(BROWSE_PARAMS) }?.removePrefix(BROWSE_PARAMS)
+        val token = continuation?.takeUnless { it.startsWith(BROWSE_PARAMS) }
+        val body = when {
+            browse != null -> JSONObject().put("browseId", channelId).put("params", browse)
+            token != null -> JSONObject().put("continuation", token)
+            else -> JSONObject().put("browseId", channelId).put("params", params)
+        }
+        val root = postAny("browse", body)
+        val page = parseFeed(root, includeLive = true)
+        if (token == null) page.copy(chips = parseHomeChips(root), filters = parseChannelFilters(root)) else page
+    }
+
     /** A filter option that reloads the tab as a fresh browse, not a continuation. */
     internal const val BROWSE_PARAMS = "browse-params:"
 
@@ -575,7 +597,8 @@ object InnerTube {
         "gridPlaylistRenderer", "playlistRenderer" -> obj.optString("playlistId").ifBlank { null }?.let { id ->
             PlaylistRef(id, obj.text("title") ?: "", obj.thumbnails()?.lastOrNull()?.let(::absoluteUrl), obj.text("videoCountText") ?: obj.text("videoCountShortText"))
         }
-        "lockupViewModel" -> if (obj.optString("contentType") != "LOCKUP_CONTENT_TYPE_PLAYLIST") null
+        "gridShowRenderer", "showRenderer" -> showPlaylist(obj)
+        "lockupViewModel" -> if (obj.optString("contentType") !in PLAYLIST_LOCKUPS) null
         else obj.optString("contentId").ifBlank { null }?.let { id ->
             val meta = obj.optJSONObject("metadata")?.optJSONObject("lockupMetadataViewModel")
             PlaylistRef(
@@ -586,6 +609,37 @@ object InnerTube {
             )
         }
         else -> null
+    }
+
+    /** Lockups Flow files as playlist rows: a playlist, a podcast, an album, or a course. */
+    private val PLAYLIST_LOCKUPS = setOf(
+        "LOCKUP_CONTENT_TYPE_PLAYLIST",
+        "LOCKUP_CONTENT_TYPE_PODCAST",
+        "LOCKUP_CONTENT_TYPE_ALBUM",
+        "LOCKUP_CONTENT_TYPE_COURSE",
+    )
+
+    /**
+     * A show is a playlist under another name, as Flow's `toShowItem`: the browse id is the
+     * playlist id behind a "VL" prefix, and the picture sits under `showCustomThumbnailRenderer`.
+     */
+    private fun showPlaylist(obj: JSONObject): PlaylistRef? {
+        val id = obj.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
+            ?.removePrefix("VL")?.ifBlank { null } ?: return null
+        val title = obj.text("title") ?: return null
+        val thumb = obj.optJSONObject("thumbnailRenderer")
+            ?.optJSONObject("showCustomThumbnailRenderer")
+            ?.optJSONObject("thumbnail")
+            ?.thumbnails()?.lastOrNull()?.let(::absoluteUrl)
+        val overlays = obj.optJSONArray("thumbnailOverlays")
+        var count: String? = null
+        if (overlays != null) {
+            for (i in 0 until overlays.length()) {
+                count = overlays.optJSONObject(i)?.collectStrings("text")?.firstOrNull { it.any(Char::isDigit) }
+                if (count != null) break
+            }
+        }
+        return PlaylistRef(id, title, thumb, count)
     }
 
     /**
@@ -894,17 +948,17 @@ object InnerTube {
      * Pulls every video out of a browse response, whichever renderer YouTube used:
      * the classic videoRenderer family or the newer lockupViewModel. Shorts are skipped.
      */
-    internal fun parseFeed(root: JSONObject): FeedPage {
+    internal fun parseFeed(root: JSONObject, includeLive: Boolean = false): FeedPage {
         val videos = LinkedHashMap<String, VideoItem>()
         var next: String? = null
         root.walk { key, obj ->
             when (key) {
-                // Members-only videos can't be played (anonymous extraction), live and upcoming
-                // streams neither (no live playback, as in search), and full movies/TV aren't
-                // wanted (Derek), so none of them is ever shown.
+                // Members-only videos can't be played (anonymous extraction) and full movies/TV
+                // aren't wanted (Derek). Live streams stay out of every feed except a channel's
+                // Live tab, which is the list of them.
                 "videoRenderer", "gridVideoRenderer", "compactVideoRenderer", "playlistVideoRenderer" ->
-                    if (!isMembersOnly(obj) && !isLive(obj) && !isMovie(obj)) parseVideoRenderer(obj)?.let { videos.putIfAbsent(it.id, it) }
-                "lockupViewModel" -> if (obj.optString("contentType") == "LOCKUP_CONTENT_TYPE_VIDEO" && !isMembersOnly(obj) && !isLive(obj) && !isMovie(obj)) {
+                    if (!isMembersOnly(obj) && (includeLive || !isLive(obj)) && !isMovie(obj)) parseVideoRenderer(obj)?.let { videos.putIfAbsent(it.id, it) }
+                "lockupViewModel" -> if (obj.optString("contentType") == "LOCKUP_CONTENT_TYPE_VIDEO" && !isMembersOnly(obj) && (includeLive || !isLive(obj)) && !isMovie(obj)) {
                     parseLockup(obj)?.let { videos.putIfAbsent(it.id, it) }
                 }
                 // Only the feed's own "load more" item (old and new names); chip filters
@@ -1089,15 +1143,13 @@ object InnerTube {
         var homeContent: JSONObject? = null
         val list = root.optJSONObject("contents")?.optJSONObject("twoColumnBrowseResultsRenderer")?.optJSONArray("tabs")
         for (i in 0 until (list?.length() ?: 0)) {
-            val tab = list?.optJSONObject(i)?.optJSONObject("tabRenderer") ?: continue
-            val raw = tab.optString("title")
-            val kind = when (raw.lowercase()) {
-                "posts", "community" -> ChannelTab.Posts
-                else -> ChannelTab.entries.firstOrNull { it != ChannelTab.About && it.title.equals(raw, ignoreCase = true) }
-            } ?: continue
+            val node = list?.optJSONObject(i) ?: continue
+            val tab = node.optJSONObject("tabRenderer") ?: node.optJSONObject("expandableTabRenderer") ?: continue
+            // Flow reads the tab from its URL, not its title, so a translated "Shows" still lands.
+            val kind = tab.toChannelTab(isFirst = i == 0) ?: continue
             val params = tab.optJSONObject("endpoint")?.optJSONObject("browseEndpoint")?.optString("params")?.ifBlank { null } ?: continue
             tabs.putIfAbsent(kind, params)
-            if (kind == ChannelTab.Home) homeContent = tab.optJSONObject("content")
+            if (kind == ChannelTab.Home && homeContent == null) homeContent = tab.optJSONObject("content")
         }
         var featured: VideoItem? = null
         val shelves = mutableListOf<ChannelShelf>()
@@ -1174,9 +1226,47 @@ object InnerTube {
         return when (String(bytes, 2, bytes[1].toInt())) {
             "videos" -> ChannelTab.Videos
             "shorts" -> ChannelTab.Shorts
+            "streams", "live" -> ChannelTab.Live
+            "shows" -> ChannelTab.Shows
+            "podcasts" -> ChannelTab.Podcasts
             "playlists" -> ChannelTab.Playlists
             "posts", "community" -> ChannelTab.Posts
             "featured" -> ChannelTab.Home
+            else -> null
+        }
+    }
+
+    /**
+     * Flow's `toChannelTabKind`: the last segment of the tab URL. The channel root is Home.
+     * A title is only the fallback, and only the landing tab with no URL is Home.
+     */
+    private fun JSONObject.toChannelTab(isFirst: Boolean): ChannelTab? {
+        val endpoint = optJSONObject("endpoint")
+        // The tab path lives on the web command (`/@name/videos`). canonicalBaseUrl is the channel root on every tab.
+        val url = endpoint?.optJSONObject("commandMetadata")?.optJSONObject("webCommandMetadata")?.optString("url")?.ifBlank { null }
+            ?: endpoint?.optJSONObject("browseEndpoint")?.optString("canonicalBaseUrl")?.ifBlank { null }
+        url.toChannelTab()?.let { return it }
+        val title = optString("title").trim()
+        val fromTitle = when (title.lowercase()) {
+            "posts", "community" -> ChannelTab.Posts
+            "live", "streams" -> ChannelTab.Live
+            else -> ChannelTab.entries.firstOrNull { it != ChannelTab.About && it.title.equals(title, ignoreCase = true) }
+        }
+        return fromTitle ?: if (isFirst) ChannelTab.Home else null
+    }
+
+    internal fun String?.toChannelTab(): ChannelTab? {
+        val segment = this?.substringBefore('?')?.trimEnd('/')?.substringAfterLast('/')?.lowercase() ?: return null
+        if (segment.startsWith("@") || segment.startsWith("uc")) return ChannelTab.Home
+        return when (segment) {
+            "featured", "home" -> ChannelTab.Home
+            "videos" -> ChannelTab.Videos
+            "shorts" -> ChannelTab.Shorts
+            "streams", "live" -> ChannelTab.Live
+            "shows" -> ChannelTab.Shows
+            "podcasts" -> ChannelTab.Podcasts
+            "playlists" -> ChannelTab.Playlists
+            "community", "posts" -> ChannelTab.Posts
             else -> null
         }
     }

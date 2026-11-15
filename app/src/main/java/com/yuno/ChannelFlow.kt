@@ -183,6 +183,7 @@ internal fun ChannelFilterBar(
     query: String,
     onQuery: (String) -> Unit,
     onToggleSearch: () -> Unit,
+    showSearch: Boolean = true,
     labelOf: @Composable (String) -> String,
     onPick: (FeedChip) -> Unit,
 ) {
@@ -214,7 +215,7 @@ internal fun ChannelFilterBar(
                 }
             }
         }
-        FilterSearch(close = searching, onClick = onToggleSearch)
+        if (showSearch) FilterSearch(close = searching, onClick = onToggleSearch)
     }
 }
 

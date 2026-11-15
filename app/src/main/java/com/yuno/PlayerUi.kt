@@ -269,9 +269,10 @@ fun PlayerScreen(
                             letterSpacing = (-0.6).sp,
                         )
                         Spacer(Modifier.height(6.dp))
+                        val watching = if (details?.live == true) state.liveChat.watching ?: item.views.takeIf { it >= 0 }?.let { "${formatCount(it)} watching" } else null
                         val stats = listOfNotNull(
-                            item.views.takeIf { it >= 0 }?.let { "${formatCount(it)} views" },
-                            item.uploaded?.ifBlank { null },
+                            watching ?: item.views.takeIf { it >= 0 }?.let { "${formatCount(it)} views" },
+                            item.uploaded?.ifBlank { null }?.takeIf { details?.live != true },
                             details?.likes?.takeIf { it > 0 }?.let { "${formatCount(it)} likes" },
                         ).joinDots()
                         val hasDescription = !details?.description.isNullOrBlank()
@@ -340,7 +341,8 @@ fun PlayerScreen(
                         // Speed, quality and audio only live on the video's own controls (VideoView.kt).
                         PlayerActions(state)
                         QueueCard(state, onOpen = { state.sheet = PlayerSheet.Queue })
-                        CommentsCard(state.comments, onOpen = { state.sheet = PlayerSheet.Comments })
+                        if (details?.live == true) LiveChatCard(state.liveChat) { state.sheet = PlayerSheet.LiveChat }
+                        else CommentsCard(state.comments, onOpen = { state.sheet = PlayerSheet.Comments })
                     }
                 }
                 val related = details?.related.orEmpty()
@@ -372,6 +374,16 @@ fun PlayerScreen(
         if (interactive) BottomGestureGuard(Modifier.align(Alignment.BottomCenter))
 
         // Comments open as a panel whose top sits just under the video.
+        if (state.sheet == PlayerSheet.LiveChat) {
+            val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+            val videoBottom = top + StageTopGap + (screenW - StageSideGap * 2) / state.stageAspect
+            LiveChatPanel(
+                state.liveChat,
+                channelId = details?.item?.channelId() ?: item.channelId(),
+                partialTop = videoBottom + 10.dp,
+                onClose = { state.sheet = null },
+            )
+        }
         if (state.sheet == PlayerSheet.Comments) {
             val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
             val videoBottom = top + StageTopGap + (screenW - StageSideGap * 2) / state.stageAspect

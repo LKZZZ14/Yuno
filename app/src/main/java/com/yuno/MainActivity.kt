@@ -580,7 +580,9 @@ fun YunoApp() {
         }
         val route = navigator.visibleRoute()
         val channel = (route as? AppRoute.Channel)?.let { channelStates[it.url] }
-        val channelLayout = channel != null && channel.current in setOf(ChannelTab.Videos, ChannelTab.Playlists)
+        val channelLayout = channel != null && channel.current in setOf(
+            ChannelTab.Videos, ChannelTab.Live, ChannelTab.Shows, ChannelTab.Podcasts, ChannelTab.Playlists,
+        )
         if (!(route == null && tab == Tab.Shorts)) {
             val shareContext = LocalContext.current
             PageTopBar(
@@ -760,7 +762,7 @@ fun YunoApp() {
             PlayerSheet.Quality -> QualitySheet(player, onDismiss = { player.sheet = null })
             PlayerSheet.Speed -> SpeedSheet(player, onDismiss = { player.sheet = null })
             PlayerSheet.Chapters -> ChaptersSheet(player, onDismiss = { player.sheet = null })
-            PlayerSheet.Comments, PlayerSheet.Transcript -> Unit // a panel inside the player (PlayerScreen)
+            PlayerSheet.Comments, PlayerSheet.LiveChat, PlayerSheet.Transcript -> Unit // a panel inside the player (PlayerScreen)
             PlayerSheet.Captions -> CaptionsSheet(player, onDismiss = { player.sheet = null }, onTranscript = { player.sheet = PlayerSheet.Transcript })
             PlayerSheet.Queue -> QueueSheet(player, onDismiss = { player.sheet = null })
             null -> Unit

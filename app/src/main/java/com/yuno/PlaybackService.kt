@@ -24,7 +24,10 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.exoplayer.dash.DefaultDashChunkSource
+import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.dash.manifest.AdaptationSet
 import androidx.media3.exoplayer.dash.manifest.DashManifest
 import androidx.media3.exoplayer.dash.manifest.DashManifestParser
@@ -547,6 +550,11 @@ internal class YouTubeMediaSourceFactory(context: Context) : MediaSource.Factory
 
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
         val info = StreamCache.get(mediaItem.mediaId) ?: return fallback.createMediaSource(mediaItem)
+        when (val live = info.liveSource()) {
+            is LiveSource.Dash -> return liveDash(live.url, mediaItem)
+            is LiveSource.Hls -> return liveHls(live.url, mediaItem)
+            null -> Unit
+        }
         val picked = StreamSelection.pick(info)
         // Auto: every quality as one adaptive set. A chosen quality stays pinned below.
         if (QualityPreference.height == null && picked.audio != null) {
@@ -601,6 +609,18 @@ internal class YouTubeMediaSourceFactory(context: Context) : MediaSource.Factory
         )
         return DashMediaSource.Factory(dataSourceFactory).createMediaSource(manifest, mediaItem)
     }
+
+    /** MeeTube's live route: the DASH manifest URL, refreshed by their live parser. */
+    private fun liveDash(url: String, mediaItem: MediaItem): MediaSource =
+        DashMediaSource.Factory(DefaultDashChunkSource.Factory(dataSourceFactory), dataSourceFactory)
+            .setManifestParser(LiveDashManifestParser())
+            .createMediaSource(mediaItem.buildUpon().setUri(url).setMimeType(MimeTypes.APPLICATION_MPD).build())
+
+    /** The HLS playlist, used when the live answer has no DASH url. */
+    private fun liveHls(url: String, mediaItem: MediaItem): MediaSource =
+        HlsMediaSource.Factory(dataSourceFactory)
+            .setAllowChunklessPreparation(true)
+            .createMediaSource(mediaItem.buildUpon().setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).build())
 
     private fun source(stream: Stream, durationSec: Long, mediaItem: MediaItem): MediaSource {
         val url = stream.content

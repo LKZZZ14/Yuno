@@ -17,6 +17,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -140,6 +141,8 @@ class PlayerState(private val scope: CoroutineScope) {
     /** Which bottom sheet is open over the player, if any. */
     var sheet by mutableStateOf<PlayerSheet?>(null)
 
+    val liveChat = LiveChat(scope)
+    private var lastLiveEdgeMs = 0L
     val comments = CommentsState(scope).apply {
         // NewPipe only knows chapters typed into the description; YouTube's auto chapters come
         // from the watch page the comments load from.
@@ -211,6 +214,7 @@ class PlayerState(private val scope: CoroutineScope) {
         loading = true
         sheet = null
         comments.clearFor(item.id)
+        liveChat.stop()
         captions.clear()
         accountState = null
         inWatchLater = false
@@ -233,8 +237,8 @@ class PlayerState(private val scope: CoroutineScope) {
                     // The player takes the video's shape before its first frame arrives.
                     if (!aspectFromFrames) d.aspect?.let { videoAspect = it }
                     // Comments wait for the stream data: their request duplicates the video
-                    // page fetch and only slowed down the critical path.
-                    comments.load(item.id)
+                    // page fetch and only slowed down the critical path. A live video gets chat.
+                    if (d.live) liveChat.start(item.id) else comments.load(item.id)
                     known[item.id] = d.item
                     // Refresh the history row with title/thumb/duration from details.
                     WatchHistory.record(d.item)
@@ -271,7 +275,9 @@ class PlayerState(private val scope: CoroutineScope) {
         SavedSession.resumeSaving()
         val player = controller ?: run { pendingStart = item; return }
         // Pick up where this video was left off (ResumeStore; written by the service).
-        replaceCurrent(player, item, positionMs = ResumeStore.startPosition(item.id))
+        // A live stream opens on its edge. A saved spot would land in the old window.
+        val start = if (details?.live == true) C.TIME_UNSET else ResumeStore.startPosition(item.id)
+        replaceCurrent(player, item, positionMs = start)
         player.play()
     }
 
@@ -894,6 +900,18 @@ class PlayerState(private val scope: CoroutineScope) {
             Log.w(TAG, "playback error ${e.errorCodeName}${status?.let { " (HTTP $it)" } ?: ""} for ${current?.id}", e)
             // A refused or expired stream URL: the service is fetching fresh links (StreamRecoverer).
             if (e.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS && StreamRecovery.recovering == current?.id) return
+            // Fell out of the live window (a pause, or the phone slept). Jump back to the edge.
+            if (e.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                val now = System.currentTimeMillis()
+                val player = controller
+                if (player != null && now - lastLiveEdgeMs > 15_000) {
+                    lastLiveEdgeMs = now
+                    player.seekToDefaultPosition()
+                    player.prepare()
+                    player.play()
+                    return
+                }
+            }
             error = when (e.errorCode) {
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Lost the connection. Check your network and try again."
@@ -972,9 +990,9 @@ fun rememberPlayerState(): PlayerState {
     return state
 }
 
-enum class PlayerSheet { Quality, Speed, Chapters, Comments, Queue, Captions, Transcript }
+enum class PlayerSheet { Quality, Speed, Chapters, Comments, LiveChat, Queue, Captions, Transcript }
 
-val PlayerSheet?.isPanel: Boolean get() = this == PlayerSheet.Comments || this == PlayerSheet.Transcript
+val PlayerSheet?.isPanel: Boolean get() = this == PlayerSheet.Comments || this == PlayerSheet.LiveChat || this == PlayerSheet.Transcript
 
 private const val TAG = "Yuno"
 /** Background audio-only kicks in only after this long; quick app switches keep video loaded. */

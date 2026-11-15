@@ -90,6 +90,8 @@ data class VideoDetails(
     val storyboards: List<Storyboard> = emptyList(),
     /** Every caption track YouTube has for this video (Captions.kt). */
     val captions: List<CaptionTrack> = emptyList(),
+    /** A stream that is on right now. A finished livestream is an ordinary video. */
+    val live: Boolean = false,
 )
 
 @Immutable
@@ -202,6 +204,7 @@ object YouTube {
     suspend fun details(id: String, wait: Boolean = true): VideoDetails = withContext(Dispatchers.IO) {
         val info = if (wait) BotCheck.retrying(id) { StreamCache.getOrLoad(id) } else BotCheck.withoutWaiting(id) { StreamCache.getOrLoad(id) }
         val picked = StreamSelection.pick(info)
+        val live = info.liveSource()
         VideoDetails(
             item = VideoItem(
                 id = id,
@@ -221,7 +224,8 @@ object YouTube {
             likes = info.likeCount,
             subscribers = info.uploaderSubscriberCount,
             related = info.relatedItems.filterIsInstance<StreamInfoItem>().mapNotNull { it.toVideoItem() },
-            playable = picked.isPlayable,
+            playable = picked.isPlayable || live != null,
+            live = live != null,
             quality = picked.playedHeight?.let { "${it}p" },
             qualities = StreamSelection.heights(info),
             aspect = (if (picked.usesSeparate) picked.video else picked.muxed)
@@ -371,8 +375,8 @@ object StreamCache {
                 val picked = StreamSelection.pick(it)
                 // Details came, but the stream request was refused: a bot check, not a dead
                 // video (or one with only ANDROID's 360p combined stream), so nothing is
-                // cached and the load can be retried.
-                if (!picked.usesSeparate && BotCheck.refusedSince(id, startedAt)) throw StreamsRefused(id, it)
+                // cached and the load can be retried. A live manifest is a real stream.
+                if (!picked.usesSeparate && it.liveSource() == null && BotCheck.refusedSince(id, startedAt)) throw StreamsRefused(id, it)
                 entries[id] = Entry(it, System.currentTimeMillis())
                 Net.noteMediaHost((picked.video ?: picked.muxed)?.content)
             }

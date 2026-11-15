@@ -129,6 +129,20 @@ class ChannelParseTest {
         assertEquals(ChannelTab.Shorts, InnerTube.tabOfParams("EgZzaG9ydHPyBgUKA5oBAA%3D%3D"))
         assertEquals(ChannelTab.Playlists, InnerTube.tabOfParams("EglwbGF5bGlzdHPyBgoKCEIGCgIQaCIA"))
         assertEquals(ChannelTab.Posts, InnerTube.tabOfParams("EgVwb3N0c_IGBAoCSgA%3D"))
+        assertEquals(ChannelTab.Live, InnerTube.tabOfParams("EgdzdHJlYW1z8gYECgJ6AA=="))
+        assertEquals(ChannelTab.Shows, InnerTube.tabOfParams("EgVzaG93c_IGBAoCYgA="))
+        assertEquals(ChannelTab.Podcasts, InnerTube.tabOfParams("Eghwb2RjYXN0c_IGBQoDugEA"))
+    }
+
+    @Test fun liveShowsPodcasts() {
+        val root = JSONObject("""{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+            {"tabRenderer":{"title":"Live","endpoint":{"browseEndpoint":{"params":"LIVE","canonicalBaseUrl":"/@x/streams"}}}},
+            {"tabRenderer":{"title":"Programmes","endpoint":{"browseEndpoint":{"params":"SHOWS","canonicalBaseUrl":"/@x/shows"}}}},
+            {"tabRenderer":{"title":"Podcasts","endpoint":{"browseEndpoint":{"params":"POD","canonicalBaseUrl":"/channel/UC/podcasts"}}}}
+        ]}}}""")
+        val home = InnerTube.parseChannelHome(root, "UCHnyfMqiRRG1u-2MsSQLbXA")
+        assertEquals(listOf(ChannelTab.Live, ChannelTab.Shows, ChannelTab.Podcasts), home.tabs.keys.toList())
+        assertEquals(ChannelTab.Shows, with(InnerTube) { "/@x/shows".toChannelTab() })
         assertNull(InnerTube.tabOfParams(null))
     }
 }
