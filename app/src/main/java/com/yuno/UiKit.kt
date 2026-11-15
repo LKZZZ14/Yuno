@@ -297,7 +297,7 @@ fun ChannelAvatar(
 
 /** Full-width feed row: inset thumbnail, then avatar + title + meta. */
 @Composable
-fun VideoCard(video: VideoItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun VideoCard(video: VideoItem, onClick: () -> Unit, modifier: Modifier = Modifier, metaColor: Color? = null) {
     val c = MaterialTheme.colorScheme
     val menu = LocalVideoMenu.current
     Column(
@@ -345,7 +345,7 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit, modifier: Modifier = Modifi
                 Spacer(Modifier.height(1.dp))
                 Text(
                     metaLine(video.channel, video.views, video.uploaded),
-                    color = c.onSurfaceVariant,
+                    color = metaColor ?: c.onSurfaceVariant,
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

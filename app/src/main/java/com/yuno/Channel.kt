@@ -252,8 +252,8 @@ fun ChannelScreen(
     onFootColor: (Color?) -> Unit = {},
 ) {
     val d = state.details
-    // The page is this colour from top to bottom. The banner is only the picture.
-    val palette = rememberArtworkPalette(d?.banner ?: d?.avatar)
+    // The page is this colour from top to bottom, taken from the profile picture.
+    val palette = rememberArtworkPalette(d?.avatar ?: d?.banner)
     SideEffect { onFootColor(palette.wash) }
     DisposableEffect(Unit) { onDispose { onFootColor(null) } }
 
@@ -320,7 +320,7 @@ private fun ChannelPage(
                 if (hasTabs) item(key = TabsKey) {
                     UnderlineTabs(
                         tabLabels, tabs.indexOf(current), { pick(tabs[it]) }, TabsRowModifier,
-                        selectedColor = palette.accent, idleColor = palette.onBackgroundVariant,
+                        selectedColor = palette.onBackgroundVariant, idleColor = palette.onBackgroundVariant,
                     )
                 }
                 when (current) {
@@ -335,7 +335,7 @@ private fun ChannelPage(
                         if (feed.chips.size > 1) item(key = "sorts") {
                             SortChips(feed.chips, feed.chip, palette) { feed.selectChip(it) }
                         }
-                        videoCards(feed.videos, columns, onOpen)
+                        videoCards(feed.videos, columns, onOpen, metaColor = palette.onBackgroundVariant)
                         feedTail(feed.loading || feed.hasMore || feed.waiting, feed.error.takeIf { feed.videos.isEmpty() }, feed::refresh,
                             empty = if (feed.loadedEmpty) R.string.ui_channel_no_videos else null, alone = feed.videos.isEmpty())
                     }
@@ -559,7 +559,7 @@ private fun LazyListScope.homeTab(
     onOpenPlaylist: (PlaylistRef) -> Unit,
     onLink: (ShelfLink) -> Unit,
 ) {
-    state.home?.featured?.let { videoCards(listOf(it), columns, onOpen) }
+    state.home?.featured?.let { videoCards(listOf(it), columns, onOpen, metaColor = palette.onBackgroundVariant) }
     state.shelves.forEachIndexed { i, shelf ->
         item(key = "shelf-$i") { ShelfRow(shelf, palette, onOpen, onOpenShorts, onOpenPlaylist, onLink) }
     }
@@ -591,12 +591,12 @@ private fun LazyListScope.feedTail(more: Boolean, error: String?, retry: () -> U
 }
 
 /**
- * The Videos tab's order as YouTube offers it (Latest · Popular · Oldest): tonal chips in a row
- * that scrolls, the chosen one full primary with rounder corners.
+ * The Videos tab's filters (Latest, Popular, Oldest, and whatever else YouTube sends):
+ * chips in a row that scrolls. The chosen one's fill is the artist-line secondary.
  */
 @Composable
 private fun SortChips(chips: List<FeedChip>, chosen: FeedChip?, palette: ArtworkPalette, onPick: (FeedChip) -> Unit) {
-    val onInk = if (palette.accent.luminance() > 0.5f) Color.Black else Color.White
+    val onInk = if (palette.onBackgroundVariant.luminance() > 0.5f) Color.Black else Color.White
     val reduced = rememberReducedMotion()
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 11.dp, end = 11.dp, top = 2.dp, bottom = 8.dp),
@@ -604,7 +604,7 @@ private fun SortChips(chips: List<FeedChip>, chosen: FeedChip?, palette: Artwork
     ) {
         chips.forEach { chip ->
             val on = chosen?.title == chip.title || (chosen == null && chip.token == null)
-            val bg by animateColorAsState(if (on) palette.accent else palette.elevated, tween(if (reduced) 0 else 220), label = "sortBg")
+            val bg by animateColorAsState(if (on) palette.onBackgroundVariant else palette.elevated, tween(if (reduced) 0 else 220), label = "sortBg")
             val fg by animateColorAsState(if (on) onInk else palette.onBackgroundVariant, tween(if (reduced) 0 else 220), label = "sortFg")
             val corner by animateDpAsState(if (on) 18.dp else 10.dp, if (reduced) tween(0) else spring(dampingRatio = 0.55f, stiffness = 500f), label = "sortCorner")
             Box(
@@ -664,8 +664,8 @@ private fun ShelfRow(
             )
             shelf.link?.let { link ->
                 Row(Modifier.pressable { onLink(link) }.padding(start = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.ui_see_all), style = type.titleSmall, color = palette.accent)
-                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                    Text(stringResource(R.string.ui_see_all), style = type.titleSmall, color = palette.onBackgroundVariant)
+                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.onBackgroundVariant, modifier = Modifier.size(18.dp))
                 }
             }
         }

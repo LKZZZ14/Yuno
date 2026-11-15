@@ -28,6 +28,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -335,10 +336,12 @@ fun LazyListScope.videoCards(
     onOpen: (VideoItem) -> Unit,
     /** A card of its own in the grid's second spot (Home's Shorts card); grids only. */
     extra: (@Composable (Modifier) -> Unit)? = null,
+    /** The line under the title. Channel pages pass the artist-line secondary. */
+    metaColor: Color? = null,
 ) {
     val videos = videos.filterNot(Dismissed::hides)
     if (columns <= 1) {
-        items(videos, key = { it.id }) { video -> VideoCard(video, onClick = { onOpen(video) }) }
+        items(videos, key = { it.id }) { video -> VideoCard(video, onClick = { onOpen(video) }, metaColor = metaColor) }
         return
     }
     val cells: List<Any> = if (extra != null && videos.isNotEmpty()) videos.take(1) + ExtraCell + videos.drop(1) else videos
@@ -346,7 +349,7 @@ fun LazyListScope.videoCards(
     items(cells.chunked(columns), key = { row -> "row-" + (row.first() as VideoItem).id }) { row ->
         Row(Modifier.fillMaxWidth().padding(horizontal = 5.dp)) {
             row.forEach { cell ->
-                if (cell is VideoItem) VideoCard(cell, onClick = { onOpen(cell) }, modifier = Modifier.weight(1f))
+                if (cell is VideoItem) VideoCard(cell, onClick = { onOpen(cell) }, modifier = Modifier.weight(1f), metaColor = metaColor)
                 else extra?.invoke(Modifier.weight(1f))
             }
             repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
