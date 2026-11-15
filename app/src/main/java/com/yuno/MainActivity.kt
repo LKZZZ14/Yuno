@@ -371,6 +371,10 @@ fun YunoApp() {
     val goBack: () -> Unit = {
         when (val route = navigator.visibleRoute()) {
             AppRoute.Settings -> if (settingsQuery.isNotEmpty()) settingsQuery = "" else navigator.pop()
+            is AppRoute.Channel -> {
+                val channel = channelStates[route.url]
+                if (channel?.searchOpen == true) channel.closeSearch() else navigator.pop()
+            }
             null -> if (tab == Tab.Shorts) leaveShorts() else tab = Tab.Home
             else -> navigator.pop()
         }
@@ -472,6 +476,7 @@ fun YunoApp() {
             LocalChannelOpener provides { url -> showChannel(url) },
             LocalWindowLayout provides windowLayout,
             LocalAppHaze provides hazeState,
+            LocalSortMenu provides remember { SortMenuHost() },
             LocalLiquidGlassEnabled provides glassOn,
             LocalAppBackdrop provides appBackdrop,
             LocalTopChrome provides topChrome,
@@ -574,6 +579,8 @@ fun YunoApp() {
             }
         }
         val route = navigator.visibleRoute()
+        val channel = (route as? AppRoute.Channel)?.let { channelStates[it.url] }
+        val channelLayout = channel != null && channel.current in setOf(ChannelTab.Videos, ChannelTab.Playlists)
         if (!(route == null && tab == Tab.Shorts)) {
             val shareContext = LocalContext.current
             PageTopBar(
@@ -585,11 +592,15 @@ fun YunoApp() {
                     tab == Tab.Library -> libraryPull
                     else -> null
                 },
-                accessory = if (route is AppRoute.Search) {{ SearchTopAccessory(search) }} else null,
+                accessory = when {
+                    route is AppRoute.Search -> {{ SearchTopAccessory(search) }}
+                    else -> null
+                },
                 beside = {
                     if (route == null && tab == Tab.Home) UpdateAction()
                 },
             ) {
+                if (channelLayout) LayoutAction(channel!!.gridView) { channel.toggleGrid() }
                 if (route is AppRoute.Channel) ShareAction {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
@@ -772,6 +783,7 @@ fun YunoApp() {
                 }
             }
         }
+        ChannelSortMenuOverlay(hazeState)
         VideoHeldMenu(
             video = optionsFor.takeIf { !showNowPlaying },
             held = optionsHeld,

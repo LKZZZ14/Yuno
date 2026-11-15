@@ -776,13 +776,14 @@ fun SearchScreen(
 
 /** The search field, drawn inside the top bar's pill on a surface tone. */
 @Composable
-private fun SearchBarField(
+internal fun SearchBarField(
     query: String,
     onQueryChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onClear: () -> Unit,
     focusRequester: FocusRequester,
     onFocusChanged: (Boolean) -> Unit,
+    placeholder: String = "Search YouTube",
 ) {
     val c = MaterialTheme.colorScheme
     val glass = LocalLiquidGlassEnabled.current && isGlassSupported()
@@ -813,7 +814,7 @@ private fun SearchBarField(
         Spacer(Modifier.width(4.dp))
         Box(Modifier.weight(1f)) {
             if (query.isEmpty()) {
-                Text("Search YouTube", style = style, color = hint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(placeholder, style = style, color = hint, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             BasicTextField(
                 value = query,

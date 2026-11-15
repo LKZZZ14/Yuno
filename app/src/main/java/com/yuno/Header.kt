@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuno.icons.SfIcons
+import com.yuno.icons.YunoIcons
 import kotlin.math.roundToInt
 import dev.chrisbanes.haze.ExperimentalHazeApi
 import dev.chrisbanes.haze.HazeInputScale
@@ -523,6 +524,34 @@ fun HeaderActions(onSearch: () -> Unit, onAccount: () -> Unit) {
         Icon(SfIcons.Search, contentDescription = "Search", tint = tint, modifier = Modifier.size(24.dp))
     }
     AccountAction(onAccount)
+}
+
+/** Search, as its own circle, the same control as Back. */
+@Composable
+fun SearchCircle(onClick: () -> Unit) {
+    val glass = LocalLiquidGlassEnabled.current && isGlassSupported()
+    val tint = if (glass) glassContentColor() else MaterialTheme.colorScheme.onSurface
+    Box(
+        Modifier.size(TopControl).floatingChrome(CircleShape).pressable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(SfIcons.Search, contentDescription = "Search", tint = tint)
+    }
+}
+
+/** List or grid, as one slot in [PageActions]. The icon is the layout a tap switches to. */
+@Composable
+fun LayoutAction(grid: Boolean, onClick: () -> Unit) {
+    val glass = LocalLiquidGlassEnabled.current && isGlassSupported()
+    val tint = if (glass) glassContentColor() else MaterialTheme.colorScheme.onSurface
+    Box(Modifier.size(TopControl).pressable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(
+            if (grid) SfIcons.List else YunoIcons.GridView,
+            contentDescription = if (grid) "List" else "Grid",
+            tint = tint,
+            modifier = Modifier.size(22.dp),
+        )
+    }
 }
 
 /** Share, as one slot in [PageActions]. The artist page's trailing share. */

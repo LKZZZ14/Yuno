@@ -72,6 +72,9 @@ class FeedState(
     /** The category chips YouTube put over the feed's first page (Home); empty when it sent none. */
     var chips by mutableStateOf<List<FeedChip>>(emptyList())
         private set
+    /** Channel Videos filters (a sort sheet plus chips). Empty on Home. */
+    var filters by mutableStateOf<List<ChannelFilterGroup>>(emptyList())
+        private set
     /** The chip whose feed is shown; null = the plain feed (the chip without a token, "All"). */
     var chip by mutableStateOf<FeedChip?>(null)
         private set
@@ -140,6 +143,8 @@ class FeedState(
                         chips = it.chips
                         if (freshOnRefresh) it.videos.forEach { v -> shown += v.id }
                     }
+                    // A continuation of a chosen filter often has no chip bar. Keep the one already shown.
+                    if (pick == null || it.filters.isNotEmpty()) filters = it.filters
                     it.videos.take(prefetchTop).forEach { v -> StreamCache.prefetch(v.id) }
                 }
                 .onFailure { error = friendly(it) }

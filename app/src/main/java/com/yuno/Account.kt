@@ -35,7 +35,12 @@ data class ChannelRef(val id: String, val name: String, val avatar: String?)
  * YouTube put over the feed (Home's first page only; empty everywhere else).
  */
 @Immutable
-data class FeedPage(val videos: List<VideoItem>, val next: String?, val chips: List<FeedChip> = emptyList())
+data class FeedPage(
+    val videos: List<VideoItem>,
+    val next: String?,
+    val chips: List<FeedChip> = emptyList(),
+    val filters: List<ChannelFilterGroup> = emptyList(),
+)
 
 /**
  * One of Home's category chips ("All", "Music", "Gaming", "Recently uploaded"…), titled as
@@ -44,6 +49,17 @@ data class FeedPage(val videos: List<VideoItem>, val next: String?, val chips: L
  */
 @Immutable
 data class FeedChip(val title: String, val token: String?)
+
+/**
+ * One row of a channel tab's filter bar, as Flow reads it. A dropdown is a sheet
+ * (Latest, Popular, Oldest). The other row is ordinary chips (Members only, Public).
+ * [ChannelFilterOption.token] is a continuation, or `browse-params:` plus browse params.
+ */
+@Immutable
+data class ChannelFilterGroup(val dropdown: Boolean, val options: List<ChannelFilterOption>)
+
+@Immutable
+data class ChannelFilterOption(val label: String, val token: String?, val selected: Boolean = false)
 
 /** A page of playlists (a channel's Playlists tab) and the token for the next one. */
 @Immutable
@@ -406,12 +422,21 @@ object InnerTube {
     }
 
     suspend fun channelVideos(channelId: String, continuation: String? = null): FeedPage = withContext(Dispatchers.IO) {
-        val body = if (continuation != null) JSONObject().put("continuation", continuation)
-        else JSONObject().put("browseId", channelId).put("params", CHANNEL_VIDEOS_TAB)
+        val params = continuation?.takeIf { it.startsWith(BROWSE_PARAMS) }?.removePrefix(BROWSE_PARAMS)
+        val token = continuation?.takeUnless { it.startsWith(BROWSE_PARAMS) }
+        val body = when {
+            params != null -> JSONObject().put("browseId", channelId).put("params", params)
+            token != null -> JSONObject().put("continuation", token)
+            else -> JSONObject().put("browseId", channelId).put("params", CHANNEL_VIDEOS_TAB)
+        }
         val root = postAny("browse", body)
         val page = parseFeed(root)
-        if (continuation == null) page.copy(chips = parseHomeChips(root)) else page
+        // A continuation page often has no chip bar. The caller keeps the bar it already has.
+        if (token == null) page.copy(chips = parseHomeChips(root), filters = parseChannelFilters(root)) else page
     }
+
+    /** A filter option that reloads the tab as a fresh browse, not a continuation. */
+    internal const val BROWSE_PARAMS = "browse-params:"
 
     /** The channel page's Videos tab selector (as on youtube.com, 2026-10-06). */
     private const val CHANNEL_VIDEOS_TAB = "EgZ2aWRlb3PyBgQKAjoA"
@@ -946,6 +971,104 @@ object InnerTube {
             add(chip.optString("text"), chip.optBoolean("selected"), tokenOf(chip.optJSONObject("tapCommand")?.optJSONObject("innertubeCommand")))
         }
         return out
+    }
+
+    /**
+     * A channel tab's filters, as Flow's `channelFilterGroups`. A chip whose tap opens a sheet
+     * (`showSheetCommand` → `listItemViewModel`) is one dropdown — Latest, Popular, Oldest — even
+     * when Members only and Public sit beside it. A parser that only reads the chip's own
+     * continuation sees no options and drops the menu. Plain chips stay a second group. The
+     * playlists sort menu (`sortFilterSubMenuRenderer`) is another dropdown, carried as browse params.
+     */
+    internal fun parseChannelFilters(root: JSONObject): List<ChannelFilterGroup> {
+        val groups = mutableListOf<ChannelFilterGroup>()
+        val chips = mutableListOf<ChannelFilterOption>()
+        val bar = root.findObject("chipBarViewModel")
+        val arr = bar?.optJSONArray("chips")
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val chip = arr.optJSONObject(i)?.optJSONObject("chipViewModel") ?: continue
+                val dropdown = chip.dropdownOptions()
+                if (dropdown.isNotEmpty()) {
+                    groups += ChannelFilterGroup(dropdown = true, options = dropdown)
+                    continue
+                }
+                chip.asFilterChip()?.let(chips::add)
+            }
+        }
+        if (chips.isNotEmpty()) groups += ChannelFilterGroup(dropdown = false, options = chips)
+        root.findObject("sortFilterSubMenuRenderer")?.let { menu ->
+            val items = menu.optJSONArray("subMenuItems") ?: return@let
+            val options = buildList {
+                for (i in 0 until items.length()) {
+                    val value = items.optJSONObject(i) ?: continue
+                    val label = value.text("title")?.trim()?.takeIf { it.isNotBlank() } ?: continue
+                    val selected = value.flag("selected")
+                    val params = value.optJSONObject("navigationEndpoint")?.browseParams()
+                    add(ChannelFilterOption(label, if (selected) null else params?.let { BROWSE_PARAMS + it }, selected))
+                }
+            }
+            if (options.isNotEmpty()) groups += ChannelFilterGroup(dropdown = true, options = options)
+        }
+        if (groups.none { it.dropdown }) {
+            val plain = groups.firstOrNull { !it.dropdown } ?: return groups
+            val sorts = plain.options.filter { it.label.lowercase() in SORT_NAMES }
+            if (sorts.size >= 2) {
+                val rest = plain.options.filter { it.label.lowercase() !in SORT_NAMES }
+                groups.clear()
+                groups += ChannelFilterGroup(dropdown = true, options = sorts)
+                if (rest.isNotEmpty()) groups += ChannelFilterGroup(dropdown = false, options = rest)
+            }
+        }
+        return groups
+    }
+
+    /** Latest / Popular / Oldest, the titles YouTube sends while the client asks in English. */
+    private val SORT_NAMES = setOf("latest", "popular", "oldest")
+
+    /** A sheet chip's rows. Empty when the chip is not a dropdown. */
+    private fun JSONObject.dropdownOptions(): List<ChannelFilterOption> {
+        val list = optJSONObject("tapCommand")
+            ?.optJSONObject("innertubeCommand")
+            ?.optJSONObject("showSheetCommand")
+            ?.optJSONObject("panelLoadingStrategy")
+            ?.optJSONObject("inlineContent")
+            ?.optJSONObject("sheetViewModel")
+            ?.optJSONObject("content")
+            ?.optJSONObject("listViewModel")
+            ?.optJSONArray("listItems") ?: return emptyList()
+        return buildList {
+            for (i in 0 until list.length()) {
+                val item = list.optJSONObject(i)?.optJSONObject("listItemViewModel") ?: continue
+                val label = item.text("title")?.trim()?.takeIf { it.isNotBlank() } ?: continue
+                val selected = item.flag("isSelected")
+                val token = item.optJSONObject("rendererContext")?.firstContinuationToken()
+                add(ChannelFilterOption(label, if (selected) null else token, selected))
+            }
+        }
+    }
+
+    /** An ordinary filter chip. A dropdown chip with no inline sheet is left out, not shown as one option. */
+    private fun JSONObject.asFilterChip(): ChannelFilterOption? {
+        if (optString("displayType").endsWith("DROP_DOWN")) return null
+        val label = text("text")?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        if (SKIPPED_CHIPS.any { it.equals(label, ignoreCase = true) }) return null
+        val token = optJSONObject("tapCommand")?.firstContinuationToken() ?: return null
+        val selected = flag("selected")
+        return ChannelFilterOption(label, if (selected) null else token, selected)
+    }
+
+    private fun JSONObject.flag(key: String): Boolean = when (val v = opt(key)) {
+        is Boolean -> v
+        is String -> v == "true"
+        else -> false
+    }
+
+    private fun JSONObject.browseParams(): String? {
+        optJSONObject("browseEndpoint")?.optString("params")?.ifBlank { null }?.let { return it }
+        var params: String? = null
+        walk { key, obj -> if (params == null && key == "browseEndpoint") params = obj.optString("params").ifBlank { null } }
+        return params
     }
 
     /**

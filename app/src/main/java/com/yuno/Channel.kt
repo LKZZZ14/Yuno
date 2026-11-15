@@ -25,6 +25,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalDensity
@@ -47,9 +48,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
-import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.VideoLibrary
@@ -88,6 +91,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import com.yuno.icons.SfIcons
 
 /** Opens a channel page from anywhere (player channel row, card avatars). Provided by the shell. */
 val LocalChannelOpener = staticCompositionLocalOf<(String) -> Unit> { {} }
@@ -163,6 +167,12 @@ class ChannelState(val url: String, private val scope: CoroutineScope) {
     val searchHasMore get() = searchNext != null
 
     fun openSearch() { searchOpen = true }
+
+    /** Videos and Playlists can be rows or a grid. Home, Posts and About keep their own layout. */
+    var gridView by mutableStateOf(false)
+        private set
+
+    fun toggleGrid() { gridView = !gridView }
 
     fun closeSearch() {
         searchJob?.cancel()
@@ -412,6 +422,10 @@ private fun ChannelPage(
         rememberPagerState(initialPage = start, pageCount = { tabs.size.coerceAtLeast(1) })
     }
     val settled = tabs.getOrNull(pager.settledPage)
+    val visible = tabs.getOrNull(pager.currentPage)
+    SideEffect {
+        if (state.details != null && visible != null && visible != state.current) state.show(visible)
+    }
     LaunchedEffect(settled, state.details, state.home, state.loading) {
         if (state.loading || state.details == null) return@LaunchedEffect
         val t = settled ?: return@LaunchedEffect
@@ -556,15 +570,22 @@ private fun ChannelTopFade(list: LazyListState, page: Color, modifier: Modifier 
 
 /**
  * The header is the first thing in the list, so it leaves with the same scroll as the rows.
- * The tab spacer sticks, which is the space the tab row (drawn above the pager) sits in.
+ * The tab spacer sticks. The filter row is an ordinary item, so it leaves with the videos.
  */
 @OptIn(ExperimentalFoundationApi::class)
-private fun LazyListScope.channelScrollHead(header: androidx.compose.ui.unit.Dp, tabs: androidx.compose.ui.unit.Dp) {
+private fun LazyListScope.channelScrollHead(headerPx: Float, header: androidx.compose.ui.unit.Dp, tabs: androidx.compose.ui.unit.Dp) {
     item(key = "channel-head") { Spacer(Modifier.height(header)) }
-    stickyHeader(key = "channel-tabs") { Spacer(Modifier.height(tabs)) }
+    // While the header spacer is still 0, a sticky tab spacer pins to the top and the page opens scrolled.
+    if (headerPx > 0f) {
+        stickyHeader(key = "channel-tabs") { Spacer(Modifier.height(tabs)) }
+    }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/** The space under the tab row, on every tab: the same inset as the page's sides. */
+private fun LazyListScope.pageGap() {
+    item(key = "page-gap") { Spacer(Modifier.height(PageGutter)) }
+}
+
 @Composable
 private fun ChannelPagerBody(
     state: ChannelState,
@@ -589,43 +610,76 @@ private fun ChannelPagerBody(
     val tabsDp = with(density) { tabRowPx.toDp() }
     val bottom = contentPadding.calculateBottomPadding()
     val listPad = PaddingValues(bottom = bottom)
+    val lift = headerDp + tabsDp
     val homeList = rememberLazyListState()
     val videosList = state.list
     val shortsList = rememberLazyListState()
     val playlistsList = rememberLazyListState()
     val postsList = rememberLazyListState()
     val aboutList = rememberLazyListState()
-    // The header moves exactly as far as the open page has scrolled. One scroll, no second gesture.
-    // A sideways swipe keeps that offset until the new page is the one on screen.
+    fun listAt(index: Int) = when (tabs.getOrNull(index)) {
+        ChannelTab.Home -> homeList
+        ChannelTab.Videos -> videosList
+        ChannelTab.Shorts -> shortsList
+        ChannelTab.Playlists -> playlistsList
+        ChannelTab.Posts -> postsList
+        ChannelTab.About, null -> aboutList
+    }
+    // The header moves exactly as far as the open page has scrolled. One scroll, both ways.
     val liveOffset by remember {
         derivedStateOf {
             val px = headerPx
             if (px <= 0f) return@derivedStateOf 0f
-            val list = when (tabs.getOrNull(pager.currentPage)) {
-                ChannelTab.Home -> homeList
-                ChannelTab.Videos -> videosList
-                ChannelTab.Shorts -> shortsList
-                ChannelTab.Playlists -> playlistsList
-                ChannelTab.Posts -> postsList
-                ChannelTab.About, null -> aboutList
-            }
+            val list = listAt(pager.currentPage)
             val scrolled = if (list.firstVisibleItemIndex > 0) px else list.firstVisibleItemScrollOffset.toFloat()
             -scrolled.coerceIn(0f, px)
         }
     }
     var offsetPx by remember { mutableFloatStateOf(0f) }
-    if (!pager.isScrollInProgress) offsetPx = liveOffset
-    val lift = headerDp + tabsDp
+    var pinnedPage by remember { mutableIntStateOf(-1) }
+    val swiping = pager.isScrollInProgress
+    if (!swiping && pager.settledPage == pinnedPage) offsetPx = liveOffset
+    // A swipe keeps the collapse. The page you land on is already scrolled by that much, so the
+    // header does not spring open when the new list is sitting at its top.
+    SideEffect {
+        if (swiping) return@SideEffect
+        val page = pager.settledPage
+        if (page == pinnedPage) return@SideEffect
+        val px = headerPx.toInt()
+        val off = (-offsetPx).roundToInt().coerceIn(0, px)
+        if (px > 0) listAt(page).requestScrollToItem(0, off)
+        pinnedPage = page
+    }
+    var openedAtTop by remember { mutableStateOf(false) }
+    LaunchedEffect(headerPx > 0f) {
+        if (headerPx > 0f && !openedAtTop && offsetPx == 0f) {
+            homeList.scrollToItem(0)
+            videosList.scrollToItem(0)
+            shortsList.scrollToItem(0)
+            playlistsList.scrollToItem(0)
+            postsList.scrollToItem(0)
+            aboutList.scrollToItem(0)
+            openedAtTop = true
+        } else if (headerPx > 0f) {
+            openedAtTop = true
+        }
+    }
+    val shelfOpen = remember { androidx.compose.runtime.mutableStateMapOf<Int, Boolean>() }
+    val groups = channelFilterGroups(state.videos.filters, state.videos.chips)
     Box(Modifier.fillMaxSize().padding(top = barHeight).clipToBounds()) {
-        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { index ->
+        HorizontalPager(
+            state = pager,
+            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (headerPx > 0f) 1f else 0f },
+            verticalAlignment = Alignment.Top,
+        ) { index ->
             val tab = tabs.getOrNull(index) ?: return@HorizontalPager
             // The page that's on screen loads itself. Settling on it is not the only chance:
             // the first pass can run before the channel has loaded, and it must not be the last.
             LaunchedEffect(tab, state.details) { if (state.details != null) state.ensureLoaded(tab) }
             when (tab) {
                 ChannelTab.Home -> LazyColumn(Modifier.fillMaxSize(), state = homeList, contentPadding = listPad) {
-                    channelScrollHead(headerDp, tabsDp)
-                    homeTab(state, columns, palette, onOpen, onOpenShorts, onOpenPlaylist) { link ->
+                    channelScrollHead(headerPx, headerDp, tabsDp)
+                    homeTab(state, palette, shelfOpen, onOpen, onOpenShorts, onOpenPlaylist) { link ->
                         when (link) {
                             is ShelfLink.Tab -> pick(link.tab)
                             is ShelfLink.Playlist -> onOpenPlaylist(link.ref)
@@ -637,22 +691,34 @@ private fun ChannelPagerBody(
                     val searching = state.searchOpen && state.searchQuery.isNotBlank()
                     val shown = if (searching) state.searchVideos else feed.videos
                     LazyColumn(Modifier.fillMaxSize(), state = videosList, contentPadding = listPad) {
-                        channelScrollHead(headerDp, tabsDp)
-                        stickyHeader(key = "channel-filters") {
+                        channelScrollHead(headerPx, headerDp, tabsDp)
+                        item(key = "channel-filters") {
                             ChannelFilterBar(
-                                chips = feed.chips,
+                                groups = groups,
                                 chosen = feed.chip,
-                                palette = palette,
+                                searching = state.searchOpen,
+                                query = state.searchQuery,
+                                onQuery = state::updateSearch,
+                                onToggleSearch = { if (state.searchOpen) state.closeSearch() else state.openSearch() },
                                 labelOf = { sortLabel(it) },
                                 onPick = feed::selectChip,
-                                searchOpen = state.searchOpen,
-                                query = state.searchQuery,
-                                onSearchOpen = state::openSearch,
-                                onSearchClose = state::closeSearch,
-                                onQuery = state::updateSearch,
                             )
                         }
-                        items(shown, key = { it.id }) { video -> ChannelVideoRow(video, palette) { onOpen(video) } }
+                        if (state.gridView) {
+                            items(shown.chunked(columns), key = { row -> row.first().id }) { row ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = PageGutter),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    row.forEach { video ->
+                                        ChannelStackedVideo(video, palette, Modifier.weight(1f), gutter = false) { onOpen(video) }
+                                    }
+                                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                                }
+                            }
+                        } else {
+                            items(shown, key = { it.id }) { video -> ChannelFeedVideo(video, palette) { onOpen(video) } }
+                        }
                         if (searching) feedTail(
                             state.searchLoading || state.searchHasMore,
                             state.searchError.takeIf { shown.isEmpty() },
@@ -676,12 +742,13 @@ private fun ChannelPagerBody(
                 ChannelTab.Shorts -> {
                     val feed = state.shorts
                     BoxWithConstraints(Modifier.fillMaxSize()) {
-                        val cols = ((maxWidth + 12.dp) / (160.dp + 12.dp)).toInt().coerceAtLeast(1)
+                        val cols = ((maxWidth - PageGutter * 2 + 12.dp) / (160.dp + 12.dp)).toInt().coerceAtLeast(1)
                         LazyColumn(Modifier.fillMaxSize(), state = shortsList, contentPadding = listPad) {
-                            channelScrollHead(headerDp, tabsDp)
+                            channelScrollHead(headerPx, headerDp, tabsDp)
+                            pageGap()
                             items(feed.videos.chunked(cols), key = { row -> row.first().id }) { row ->
                                 Row(
-                                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 12.dp),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
                                     row.forEach { s ->
@@ -706,8 +773,23 @@ private fun ChannelPagerBody(
                 }
                 ChannelTab.Playlists -> {
                     LazyColumn(Modifier.fillMaxSize(), state = playlistsList, contentPadding = listPad) {
-                        channelScrollHead(headerDp, tabsDp)
-                        items(state.playlists, key = { it.id }) { p -> PlaylistRow(p, palette) { onOpenPlaylist(p) } }
+                        channelScrollHead(headerPx, headerDp, tabsDp)
+                        pageGap()
+                        if (state.gridView) {
+                            items(state.playlists.chunked(columns), key = { row -> row.first().id }) { row ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = PageGutter),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    row.forEach { p ->
+                                        ChannelStackedPlaylist(p, palette, Modifier.weight(1f), gutter = false) { onOpenPlaylist(p) }
+                                    }
+                                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                                }
+                            }
+                        } else {
+                            items(state.playlists, key = { it.id }) { p -> PlaylistRow(p, palette) { onOpenPlaylist(p) } }
+                        }
                         feedTail(state.playlistsLoading || state.playlistsHaveMore || !state.playlistsTried, state.playlistsError.takeIf { state.playlists.isEmpty() },
                             { state.loadPlaylists(more = false) }, empty = if (state.playlistsEmpty) R.string.ui_channel_no_playlists else null,
                             alone = state.playlists.isEmpty(), phrase = palette.onBackgroundVariant, lift = lift)
@@ -716,7 +798,8 @@ private fun ChannelPagerBody(
                 }
                 ChannelTab.Posts -> {
                     LazyColumn(Modifier.fillMaxSize(), state = postsList, contentPadding = listPad) {
-                        channelScrollHead(headerDp, tabsDp)
+                        channelScrollHead(headerPx, headerDp, tabsDp)
+                        pageGap()
                         items(state.posts, key = { it.id }) { post -> ChannelPostCard(post, palette) }
                         feedTail(
                             state.postsLoading || state.postsHaveMore || !state.postsStarted,
@@ -731,7 +814,8 @@ private fun ChannelPagerBody(
                     if (index == pager.settledPage) ListLoadMore(postsList, state.posts.isNotEmpty()) { state.loadMore() }
                 }
                 ChannelTab.About -> LazyColumn(Modifier.fillMaxSize(), state = aboutList, contentPadding = listPad) {
-                    channelScrollHead(headerDp, tabsDp)
+                    channelScrollHead(headerPx, headerDp, tabsDp)
+                    pageGap()
                     item {
                         ChannelAboutPage(
                             description = state.home?.about?.description?.takeIf { it.isNotBlank() } ?: d.description,
@@ -842,19 +926,63 @@ private fun tabLabel(t: ChannelTab) = when (t) {
     ChannelTab.About -> stringResource(R.string.channel_tab_about)
 }
 
-/** Home: the featured video, then the creator's shelves, each a sideways row with See all. */
+/**
+ * Home, as Flow's shelf page on a phone: an 8dp gap, the featured video as a full-width card,
+ * then each shelf as a vertical list of the same rows the other tabs use. Four rows show, with
+ * an arrow for the rest. A Shorts shelf stays a horizontal strip.
+ */
 private fun LazyListScope.homeTab(
     state: ChannelState,
-    columns: Int,
     palette: ArtworkPalette,
+    open: androidx.compose.runtime.snapshots.SnapshotStateMap<Int, Boolean>,
     onOpen: (VideoItem) -> Unit,
     onOpenShorts: (ShortsList) -> Unit,
     onOpenPlaylist: (PlaylistRef) -> Unit,
     onLink: (ShelfLink) -> Unit,
 ) {
-    state.home?.featured?.let { video -> item { ChannelVideoRow(video, palette) { onOpen(video) } } }
+    item { Spacer(Modifier.height(PageGutter)) }
+    state.home?.featured?.let { video ->
+        item(key = "featured") { ChannelStackedVideo(video, palette) { onOpen(video) } }
+    }
     state.shelves.forEachIndexed { i, shelf ->
-        item(key = "shelf-$i") { ShelfRow(shelf, palette, onOpen, onOpenShorts, onOpenPlaylist, onLink) }
+        if (shelf.shorts.isNotEmpty()) {
+            item(key = "shelf-$i") { ShortsShelf(shelf, palette, onOpenShorts, onLink) }
+            return@forEachIndexed
+        }
+        val rows = when {
+            shelf.videos.isNotEmpty() -> shelf.videos.size
+            shelf.playlists.isNotEmpty() -> shelf.playlists.size
+            else -> shelf.channels.size
+        }
+        if (rows == 0) return@forEachIndexed
+        val preview = 4
+        val expanded = open[i] == true
+        val count = if (expanded) rows else rows.coerceAtMost(preview)
+        item(key = "shelf-$i-title") { ShelfHeader(shelfTitle(shelf.title), shelf.link != null, palette) { shelf.link?.let(onLink) } }
+        when {
+            shelf.videos.isNotEmpty() -> items(count, key = { n -> "shelf-$i-v-${shelf.videos[n].id}" }) { n ->
+                ChannelVideoRow(shelf.videos[n], palette) { onOpen(shelf.videos[n]) }
+            }
+            shelf.playlists.isNotEmpty() -> items(count, key = { n -> "shelf-$i-p-${shelf.playlists[n].id}" }) { n ->
+                PlaylistRow(shelf.playlists[n], palette) { onOpenPlaylist(shelf.playlists[n]) }
+            }
+            else -> items(count, key = { n -> "shelf-$i-c-${shelf.channels[n].id}" }) { n ->
+                ShelfChannelRow(shelf.channels[n], palette)
+            }
+        }
+        if (rows > preview) {
+            item(key = "shelf-$i-more") {
+                Box(Modifier.fillMaxWidth().pressable { open[i] = !expanded }, contentAlignment = Alignment.Center) {
+                    Icon(
+                        if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = palette.onBackgroundVariant,
+                        modifier = Modifier.padding(vertical = 4.dp).size(24.dp),
+                    )
+                }
+            }
+        }
+        item(key = "shelf-$i-gap") { Spacer(Modifier.height(12.dp)) }
     }
 }
 
@@ -939,71 +1067,69 @@ private fun shelfTitle(english: String) = when (english.lowercase()) {
     else -> english
 }
 
+/** Flow's shelf title: bold, and the whole row opens the shelf when it has somewhere to go. */
 @Composable
-private fun ShelfRow(
-    shelf: ChannelShelf,
-    palette: ArtworkPalette,
-    onOpen: (VideoItem) -> Unit,
-    onOpenShorts: (ShortsList) -> Unit,
-    onOpenPlaylist: (PlaylistRef) -> Unit,
-    onLink: (ShelfLink) -> Unit,
-) {
-    val type = MaterialTheme.typography
-    Column(Modifier.padding(top = 10.dp, bottom = 8.dp)) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                shelfTitle(shelf.title), Modifier.weight(1f),
-                style = type.headlineMedium, color = palette.onBackground,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            shelf.link?.let { link ->
-                Row(Modifier.pressable { onLink(link) }.padding(start = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.ui_see_all), style = type.titleSmall, color = palette.onBackgroundVariant)
-                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.onBackgroundVariant, modifier = Modifier.size(18.dp))
-                }
-            }
-        }
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            when {
-                shelf.videos.isNotEmpty() -> items(shelf.videos, key = { it.id }) { v -> ShelfVideo(v, palette) { onOpen(v) } }
-                shelf.shorts.isNotEmpty() -> itemsIndexed(shelf.shorts, key = { _, s -> s.id }) { i, s ->
-                    ShortTile(s, Modifier.width(160.dp), palette) { onOpenShorts(ShortsList(shelf.shorts, i)) }
-                }
-                shelf.playlists.isNotEmpty() -> items(shelf.playlists, key = { it.id }) { p -> ShelfPlaylist(p, palette) { onOpenPlaylist(p) } }
-                else -> items(shelf.channels, key = { it.id }) { ch -> ShelfChannel(ch, palette) }
-            }
+private fun ShelfHeader(title: String, hasMore: Boolean, palette: ArtworkPalette, onClick: () -> Unit) {
+    if (title.isBlank()) return
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (hasMore) Modifier.pressable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = palette.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (hasMore) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = palette.onBackgroundVariant)
         }
     }
 }
 
-/** A video in a shelf: a 200 dp card, thumbnail over two lines of title and views · age. */
+/** Flow's Shorts shelf: the heading, then a horizontal strip of reel cards at their own width. */
 @Composable
-private fun ShelfVideo(video: VideoItem, palette: ArtworkPalette, onClick: () -> Unit) {
-    val type = MaterialTheme.typography
-    val menu = LocalVideoMenu.current
-    Column(
-        Modifier
-            .width(ShelfCardWidth)
-            .prefetchOnPress(video.id)
-            .pressable(pressedScale = 0.97f, onLongClick = { menu(video) }, onClick = onClick),
-    ) {
-        Box {
-            Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 16)
-            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(7.dp), small = true)
-            ResumeBar(video.id, Modifier.align(Alignment.BottomStart))
+private fun ShortsShelf(
+    shelf: ChannelShelf,
+    palette: ArtworkPalette,
+    onOpenShorts: (ShortsList) -> Unit,
+    onLink: (ShelfLink) -> Unit,
+) {
+    val more = shelf.link
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .then(if (more != null) Modifier.pressable { onLink(more) } else Modifier)
+                .padding(horizontal = PageGutter, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(SfIcons.Shorts, contentDescription = null, tint = palette.onBackground, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                shelfTitle(shelf.title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = palette.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (more != null) {
+                Spacer(Modifier.weight(1f))
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = palette.onBackgroundVariant, modifier = Modifier.size(24.dp))
+            }
         }
-        Text(
-            video.title, Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp),
-            style = type.titleMedium, color = palette.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis,
-        )
-        val meta = metaLine("", video.views, video.uploaded)
-        if (meta.isNotEmpty()) Text(
-            meta, Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-            style = type.bodyMedium, color = palette.onBackgroundVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-        )
+        LazyRow(contentPadding = PaddingValues(horizontal = PageGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            itemsIndexed(shelf.shorts, key = { _, s -> s.id }) { i, s ->
+                ShortTile(s, Modifier.width(160.dp), palette) { onOpenShorts(ShortsList(shelf.shorts, i)) }
+            }
+        }
     }
 }
 
@@ -1049,26 +1175,11 @@ private fun PlaylistBadge(p: PlaylistRef, modifier: Modifier) {
     }
 }
 
-@Composable
-private fun ShelfPlaylist(p: PlaylistRef, palette: ArtworkPalette, onClick: () -> Unit) {
-    Column(Modifier.width(ShelfCardWidth).pressable(pressedScale = 0.97f, onClick = onClick)) {
-        Box {
-            Thumbnail(p.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 16)
-            PlaylistBadge(p, Modifier.align(Alignment.BottomEnd).padding(7.dp))
-        }
-        Text(
-            p.title, Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp),
-            style = MaterialTheme.typography.titleMedium, color = palette.onBackground,
-            maxLines = 2, overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
 /** The Playlists tab's row: thumbnail with the count, the playlist's name beside it. */
 @Composable
 private fun PlaylistRow(p: PlaylistRef, palette: ArtworkPalette, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().pressable(pressedScale = 0.97f, onClick = onClick).padding(horizontal = 12.dp, vertical = 4.dp),
+        Modifier.fillMaxWidth().pressable(pressedScale = 0.97f, onClick = onClick).padding(start = PageGutter, end = PageGutter, bottom = PageGutter),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1092,24 +1203,16 @@ private fun PlaylistRow(p: PlaylistRef, palette: ArtworkPalette, onClick: () -> 
     }
 }
 
-/** A channel the creator features: its picture and name; a tap opens its page. */
+/** A featured channel, as a row: picture and name. A tap opens the channel. */
 @Composable
-private fun ShelfChannel(ch: ChannelRef, palette: ArtworkPalette) {
+private fun ShelfChannelRow(ch: ChannelRef, palette: ArtworkPalette) {
     val open = LocalChannelOpener.current
-    Column(
-        Modifier.width(76.dp).pressable { open("https://www.youtube.com/channel/${ch.id}") },
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Row(
+        Modifier.fillMaxWidth().pressable { open("https://www.youtube.com/channel/${ch.id}") }.padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        ChannelAvatar(ch.avatar, ch.name, size = 64)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            ch.name,
-            style = MaterialTheme.typography.labelMedium,
-            color = palette.onBackgroundVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        ChannelAvatar(ch.avatar, ch.name, size = 40)
+        Spacer(Modifier.width(12.dp))
+        Text(ch.name, style = MaterialTheme.typography.titleSmall, color = palette.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
-
-private val ShelfCardWidth = 200.dp

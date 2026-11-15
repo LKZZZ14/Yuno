@@ -1,7 +1,8 @@
 package com.yuno
 
-import androidx.compose.foundation.BorderStroke
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -12,13 +13,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -34,16 +42,11 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.rounded.Check
+import com.yuno.icons.SfIcons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Tab
@@ -58,25 +61,52 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.yuno.icons.SfIcons
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
+import dev.chrisbanes.haze.materials.HazeMaterials
+import kotlin.math.roundToInt
 
 /** Latest / Popular / Oldest are one menu. Everything else (Members only, Public, …) is a chip. */
 private val SortTitles = setOf("latest", "popular", "oldest")
+
+/** Filters from the sheet parser, or the plain chips grouped the same way when the sheet was empty. */
+internal fun channelFilterGroups(filters: List<ChannelFilterGroup>, chips: List<FeedChip>): List<ChannelFilterGroup> {
+    if (filters.isNotEmpty()) return filters
+    if (chips.isEmpty()) return emptyList()
+    val sorts = chips.filter { it.title.lowercase() in SortTitles }
+    val rest = chips.filter { it.title.lowercase() !in SortTitles }
+    val asOption = { chip: FeedChip -> ChannelFilterOption(chip.title, chip.token, chip.token == null) }
+    return buildList {
+        if (sorts.size >= 2) add(ChannelFilterGroup(dropdown = true, options = sorts.map(asOption)))
+        val plain = if (sorts.size >= 2) rest else chips
+        if (plain.isNotEmpty()) add(ChannelFilterGroup(dropdown = false, options = plain.map(asOption)))
+    }
+}
 
 /**
  * Flow's channel tab row: a 44dp scrollable row, a 2dp indicator, and a hairline under it.
@@ -127,105 +157,202 @@ internal fun ChannelTabRow(
     }
 }
 
+/** The open sort menu. Drawn outside the page's blur source, the same way the hold menu is. */
+internal class SortMenuHost {
+    var request by mutableStateOf<SortMenuRequest?>(null)
+}
+
+internal class SortMenuRequest(
+    val anchor: Rect,
+    val labels: List<String>,
+    val selected: Int,
+    val onPick: (Int) -> Unit,
+)
+
+internal val LocalSortMenu = androidx.compose.runtime.staticCompositionLocalOf<SortMenuHost?> { null }
+
 /**
- * Flow's filter bar. The sort (Latest, Popular, Oldest) opens a menu. The other filters are chips,
- * with a check on the one that's on.
+ * The Videos filter row. It scrolls with the list. Search sits at the end. While search is open
+ * the chips leave, the field takes their place, and the icon becomes an X.
  */
 @Composable
 internal fun ChannelFilterBar(
-    chips: List<FeedChip>,
+    groups: List<ChannelFilterGroup>,
     chosen: FeedChip?,
-    palette: ArtworkPalette,
+    searching: Boolean,
+    query: String,
+    onQuery: (String) -> Unit,
+    onToggleSearch: () -> Unit,
     labelOf: @Composable (String) -> String,
     onPick: (FeedChip) -> Unit,
-    searchOpen: Boolean,
-    query: String,
-    onSearchOpen: () -> Unit,
-    onSearchClose: () -> Unit,
-    onQuery: (String) -> Unit,
 ) {
-    val sorts = chips.filter { it.title.lowercase() in SortTitles }
-    val filters = chips.filter { it.title.lowercase() !in SortTitles }
-    val chosenSort = sorts.firstOrNull { it.title == chosen?.title }
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(searchOpen) { if (searchOpen) focus.requestFocus() }
     Row(
-        Modifier.fillMaxWidth().background(palette.wash).padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 8.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(start = PageGutter, end = PageGutter, top = PageGutter, bottom = PageGutter),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (searchOpen) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQuery,
-                modifier = Modifier.weight(1f).focusRequester(focus),
-                placeholder = { Text(stringResource(R.string.channel_search_hint), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.onBackground),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = palette.onBackground,
-                    unfocusedTextColor = palette.onBackground,
-                    focusedBorderColor = palette.onBackgroundVariant,
-                    unfocusedBorderColor = palette.onBackgroundVariant,
-                    cursorColor = palette.onBackground,
-                    focusedPlaceholderColor = palette.onBackgroundVariant,
-                    unfocusedPlaceholderColor = palette.onBackgroundVariant,
-                ),
-            )
-            IconButton(onClick = onSearchClose) {
-                Icon(SfIcons.Close, stringResource(R.string.ui_clear_search), tint = palette.onBackgroundVariant)
-            }
+        if (searching) {
+            FilterField(query, onQuery, Modifier.weight(1f))
         } else {
             LazyRow(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(end = 8.dp),
+                Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (sorts.isNotEmpty()) {
-                    item(key = "sort") {
-                        SortMenu(sorts, chosenSort, palette, labelOf, onPick)
+                groups.forEachIndexed { index, group ->
+                    if (group.dropdown) {
+                        item(key = "sort-$index") { SortChip(group.options, chosen, labelOf, onPick) }
+                    } else {
+                        items(group.options, key = { it.label }) { option ->
+                            GlassChip(labelOf(option.label), selected = chosen?.title == option.label) {
+                                onPick(FeedChip(option.label, option.token))
+                            }
+                        }
                     }
                 }
-                items(filters, key = { it.title }) { chip ->
-                    FlowStyleChip(labelOf(chip.title), chosen?.title == chip.title, palette) { onPick(chip) }
-                }
-            }
-            IconButton(onClick = onSearchOpen) {
-                Icon(SfIcons.Search, stringResource(R.string.channel_search_hint), tint = palette.onBackgroundVariant)
             }
         }
+        FilterSearch(close = searching, onClick = onToggleSearch)
     }
 }
 
 @Composable
-private fun SortMenu(
-    sorts: List<FeedChip>,
+private fun FilterField(query: String, onQuery: (String) -> Unit, modifier: Modifier = Modifier) {
+    val c = MaterialTheme.colorScheme
+    val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) {
+        runCatching { focus.requestFocus() }
+        keyboard?.show()
+    }
+    val style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Normal, color = c.onSurface)
+    BasicTextField(
+        value = query,
+        onValueChange = onQuery,
+        singleLine = true,
+        textStyle = style,
+        cursorBrush = SolidColor(c.primary),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+        modifier = modifier
+            .height(40.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.07f), CircleShape)
+            .liquidGlassRim(CircleShape)
+            .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+            .focusRequester(focus)
+            .padding(horizontal = 16.dp),
+        decorationBox = { inner ->
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                if (query.isEmpty()) {
+                    Text(
+                        stringResource(R.string.channel_search_hint),
+                        color = c.onSurface.copy(alpha = 0.6f),
+                        fontSize = 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                inner()
+            }
+        },
+    )
+}
+
+@Composable
+private fun FilterSearch(close: Boolean, onClick: () -> Unit) {
+    val ink = MaterialTheme.colorScheme.onSurface
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.07f), CircleShape)
+            .liquidGlassRim(CircleShape)
+            .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+            .pressable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            if (close) SfIcons.Close else SfIcons.Search,
+            contentDescription = if (close) "Close" else "Search",
+            tint = ink,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
+private fun SortChip(
+    options: List<ChannelFilterOption>,
     chosen: FeedChip?,
-    palette: ArtworkPalette,
     labelOf: @Composable (String) -> String,
     onPick: (FeedChip) -> Unit,
 ) {
-    var open by remember { mutableStateOf(false) }
-    val active = chosen ?: sorts.firstOrNull { it.token == null } ?: sorts.first()
+    if (options.isEmpty()) return
+    val host = LocalSortMenu.current
+    val active = options.firstOrNull { it.label == chosen?.title }
+        ?: options.firstOrNull { it.selected }
+        ?: options.first()
+    val labels = options.map { labelOf(it.label) }
+    var anchor by remember { mutableStateOf(Rect.Zero) }
+    GlassChip(
+        labelOf(active.label),
+        selected = chosen != null || active.selected,
+        dropdown = true,
+        modifier = Modifier.onGloballyPositioned { anchor = it.boundsInWindow() },
+    ) {
+        host?.request = SortMenuRequest(
+            anchor = anchor,
+            labels = labels,
+            selected = options.indexOfFirst { it.label == active.label }.coerceAtLeast(0),
+            onPick = { index -> options.getOrNull(index)?.let { onPick(FeedChip(it.label, it.token)) } },
+        )
+    }
+}
+
+/**
+ * The sort menu, with the hold menu's blur. It has to be drawn outside the page recording,
+ * or the blur has nothing behind it to sample.
+ */
+@OptIn(ExperimentalHazeMaterialsApi::class)
+@Composable
+internal fun ChannelSortMenuOverlay(haze: HazeState) {
+    val host = LocalSortMenu.current ?: return
+    val request = host.request ?: return
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val plate = (if (dark) Color.Black else Color.White).copy(alpha = 0.5f)
     val hairline = if (dark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f)
     val menuShape = RoundedCornerShape(30.dp)
-    Box {
-        FlowStyleChip(labelOf(active.title), selected = chosen != null, palette = palette, dropdown = true) { open = true }
-        DropdownMenu(
-            expanded = open,
-            onDismissRequest = { open = false },
-            shape = menuShape,
-            containerColor = plate,
-            tonalElevation = 0.dp,
-            shadowElevation = 24.dp,
-            border = BorderStroke(0.5.dp, hairline),
+    BackHandler { host.request = null }
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .hazeEffect(state = haze, style = HazeMaterials.ultraThin(MaterialTheme.colorScheme.background))
+                .background(if (dark) Color.Black.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { host.request = null },
+                ),
+        )
+        Column(
+            Modifier
+                .offset { IntOffset(request.anchor.left.roundToInt(), request.anchor.bottom.roundToInt() + 6) }
+                .widthIn(min = 200.dp)
+                .shadow(24.dp, menuShape, ambientColor = Color.Black.copy(alpha = 0.30f), spotColor = Color.Black.copy(alpha = 0.30f))
+                .clip(menuShape)
+                .background(plate)
+                .border(0.5.dp, hairline, menuShape)
+                .padding(vertical = 8.dp)
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
         ) {
-            sorts.forEach { chip ->
-                SortMenuRow(labelOf(chip.title), selected = chip.title == active.title, dark = dark) {
-                    open = false
-                    onPick(chip)
+            request.labels.forEachIndexed { index, label ->
+                SortMenuRow(label, selected = index == request.selected, dark = dark) {
+                    host.request = null
+                    request.onPick(index)
                 }
             }
         }
@@ -258,41 +385,32 @@ private fun SortMenuRow(label: String, selected: Boolean, dark: Boolean, onClick
     }
 }
 
+/** The subscribe pill, as a chip. Liquid glass draws the rim while that setting is on. */
 @Composable
-private fun FlowStyleChip(label: String, selected: Boolean, palette: ArtworkPalette, dropdown: Boolean = false, onClick: () -> Unit) {
-    val ink = if (palette.onBackgroundVariant.luminance() > 0.5f) Color.Black else Color.White
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        leadingIcon = if (selected && !dropdown) {
-            { Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
-        } else {
-            null
-        },
-        trailingIcon = if (dropdown) {
-            { Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
-        } else {
-            null
-        },
-        colors = FilterChipDefaults.filterChipColors(
-            containerColor = palette.elevated,
-            labelColor = palette.onBackgroundVariant,
-            iconColor = palette.onBackgroundVariant,
-            selectedContainerColor = palette.onBackgroundVariant,
-            selectedLabelColor = ink,
-            selectedLeadingIconColor = ink,
-            selectedTrailingIconColor = ink,
-        ),
-        border = FilterChipDefaults.filterChipBorder(
-            enabled = true,
-            selected = selected,
-            borderColor = palette.onBackgroundVariant,
-            selectedBorderColor = palette.onBackgroundVariant,
-            borderWidth = 1.dp,
-            selectedBorderWidth = 1.dp,
-        ),
-    )
+private fun GlassChip(
+    label: String,
+    selected: Boolean,
+    dropdown: Boolean = false,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val ink = MaterialTheme.colorScheme.onSurface
+    Row(
+        modifier
+            .height(40.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = if (selected) 0.16f else 0.07f), CircleShape)
+            .liquidGlassRim(CircleShape)
+            .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+            .pressable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (selected && !dropdown) Icon(Icons.Rounded.Check, contentDescription = null, tint = ink, modifier = Modifier.size(16.dp))
+        Text(label, color = ink, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (dropdown) Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp))
+    }
 }
 
 /**
@@ -319,7 +437,7 @@ internal fun ChannelAboutPage(
     val links = about?.links.orEmpty()
     val line = palette.onBackgroundVariant.copy(alpha = 0.35f)
     Column(
-        Modifier.fillMaxWidth().padding(16.dp),
+        Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = PageGutter),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         if (description.isNotBlank()) {
@@ -445,12 +563,59 @@ internal fun ChannelPostCard(post: CommunityPost, palette: ArtworkPalette) {
     }
 }
 
+/**
+ * List view on Videos. The home page's card: full-width thumbnail, then the avatar, the title
+ * and the meta line at the home page's sizes.
+ */
+@Composable
+internal fun ChannelFeedVideo(video: VideoItem, palette: ArtworkPalette, onClick: () -> Unit) {
+    val menu = LocalVideoMenu.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 16.dp)
+            .prefetchOnPress(video.id)
+            .pressable(
+                pressedScale = 0.97f,
+                lift = true,
+                liftPadding = PaddingValues(horizontal = PageGutter),
+                onLongClick = { menu(video) },
+                onClick = onClick,
+            ),
+    ) {
+        Box(Modifier.padding(horizontal = PageGutter).clip(RoundedCornerShape(FeedVideoThumbRadius.dp))) {
+            Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = FeedVideoThumbRadius, videoId = video.id)
+            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(5.dp))
+            ResumeBar(video.id, Modifier.align(Alignment.BottomStart))
+        }
+        Row(Modifier.padding(horizontal = PageGutter, vertical = 12.dp)) {
+            ChannelAvatar(video.feedAvatar(), video.channel)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                FadingTitle(
+                    text = video.title,
+                    style = TextStyle(fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 20.sp),
+                    color = palette.onBackground,
+                )
+                Spacer(Modifier.height(1.dp))
+                Text(
+                    metaLine(video.channel, video.views, video.uploaded),
+                    color = palette.onBackgroundVariant,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
 /** A video on the channel, as a row: thumbnail on the left, title and the detail line. No channel name. */
 @Composable
 internal fun ChannelVideoRow(video: VideoItem, palette: ArtworkPalette, onClick: () -> Unit) {
     val menu = LocalVideoMenu.current
     Row(
-        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp).prefetchOnPress(video.id)
+        Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = PageGutter).prefetchOnPress(video.id)
             .pressable(pressedScale = 0.97f, onLongClick = { menu(video) }, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -466,6 +631,67 @@ internal fun ChannelVideoRow(video: VideoItem, palette: ArtworkPalette, onClick:
             if (meta.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Text(meta, style = MaterialTheme.typography.bodySmall, color = palette.onBackgroundVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+/** A video as a stacked card: the thumbnail on top, the title under it. Flow's grid card on a phone. */
+@Composable
+internal fun ChannelStackedVideo(
+    video: VideoItem,
+    palette: ArtworkPalette,
+    modifier: Modifier = Modifier,
+    gutter: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val menu = LocalVideoMenu.current
+    Column(
+        modifier.fillMaxWidth().padding(bottom = 12.dp).prefetchOnPress(video.id)
+            .pressable(pressedScale = 0.97f, onLongClick = { menu(video) }, onClick = onClick),
+    ) {
+        Box {
+            Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 0, videoId = video.id)
+            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true)
+            ResumeBar(video.id, Modifier.align(Alignment.BottomStart))
+        }
+        Column(Modifier.padding(horizontal = if (gutter) PageGutter else 0.dp)) {
+            Text(
+                video.title,
+                Modifier.padding(top = 8.dp),
+                style = MaterialTheme.typography.titleSmall,
+                color = palette.onBackground,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val meta = metaLine("", video.views, video.uploaded)
+            if (meta.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text(meta, style = MaterialTheme.typography.bodySmall, color = palette.onBackgroundVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+/** A playlist as a stacked card, the grid form of [PlaylistRow]. */
+@Composable
+internal fun ChannelStackedPlaylist(
+    p: PlaylistRef,
+    palette: ArtworkPalette,
+    modifier: Modifier = Modifier,
+    gutter: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Column(modifier.fillMaxWidth().padding(bottom = 12.dp).pressable(pressedScale = 0.97f, onClick = onClick)) {
+        Box {
+            Thumbnail(p.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 0)
+            // The badge lives on the row; the stacked card keeps the count under the title.
+        }
+        Column(Modifier.padding(horizontal = if (gutter) PageGutter else 0.dp, vertical = 8.dp)) {
+            Text(p.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = palette.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            p.subtitle?.let {
+                Spacer(Modifier.height(4.dp))
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = palette.onBackgroundVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
