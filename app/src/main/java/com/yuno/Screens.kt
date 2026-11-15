@@ -1,29 +1,8 @@
 package com.yuno
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onPlaced
-import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.platform.LocalDensity
-import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyRow
@@ -200,127 +179,24 @@ fun SubscriptionsScreen(
     }
 }
 
-/**
- * Words in a row that scrolls, the [selected] one primary and heavier with a short rounded bar
- * springing under it from the last pick; the row fades out at whichever edge has more to scroll
- * to. Home's categories and a channel's tabs.
- */
-@Composable
-fun UnderlineTabs(
-    labels: List<String>,
-    selected: Int,
-    onPick: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-    selectedColor: Color? = null,
-    idleColor: Color? = null,
-) {
-    val c = MaterialTheme.colorScheme
-    val onColor = selectedColor ?: c.primary
-    val offColor = idleColor ?: c.onSurfaceVariant
-    val reduced = rememberReducedMotion()
-    val density = LocalDensity.current
-    val scroll = rememberScrollState()
-    val spots = remember(labels) { mutableStateMapOf<Int, Pair<Float, Float>>() }
-    val barLeft = remember { Animatable(0f) }
-    val barWidth = remember { Animatable(0f) }
-    var barShown by remember { mutableStateOf(false) }
-    val target = spots[selected]
-    LaunchedEffect(target) {
-        val (left, width) = target ?: return@LaunchedEffect
-        val w = maxOf(width * ChipBarShare, with(density) { ChipBarMin.toPx() })
-        val l = left + (width - w) / 2
-        if (!barShown || reduced) {
-            barLeft.snapTo(l); barWidth.snapTo(w); barShown = true
-            return@LaunchedEffect
-        }
-        val spec = spring<Float>(dampingRatio = 0.62f, stiffness = 450f)
-        launch { barLeft.animateTo(l, spec) }
-        barWidth.animateTo(w, spec)
-    }
-    LaunchedEffect(selected) {
-        val (left, width) = spots[selected] ?: return@LaunchedEffect
-        val edge = with(density) { ChipRowPadding.toPx() }
-        val x = left + edge
-        val view = scroll.viewportSize
-        if (x - edge < scroll.value || x + width + edge > scroll.value + view) {
-            val to = (x + width / 2 - view / 2f).toInt()
-            if (reduced) scroll.scrollTo(to) else scroll.animateScrollTo(to)
-        }
-    }
-    val fade = with(density) { ChipRowFade.toPx() }
-    Box(
-        modifier
-            .fillMaxWidth()
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .drawWithContent {
-                drawContent()
-                val leftFade = (scroll.value / fade).coerceIn(0f, 1f)
-                val rightFade = ((scroll.maxValue - scroll.value) / fade).coerceIn(0f, 1f)
-                val w = size.width
-                drawRect(
-                    Brush.horizontalGradient(
-                        0f to Color.Black.copy(alpha = 1f - leftFade),
-                        (fade / w) to Color.Black,
-                        (1f - fade / w) to Color.Black,
-                        1f to Color.Black.copy(alpha = 1f - rightFade),
-                    ),
-                    blendMode = BlendMode.DstIn,
-                )
-            },
-    ) {
-        Row(
-            Modifier
-                .horizontalScroll(scroll)
-                .padding(horizontal = ChipRowPadding)
-                .drawBehind {
-                    if (!barShown) return@drawBehind
-                    val h = ChipBarHeight.toPx()
-                    drawRoundRect(
-                        onColor,
-                        topLeft = Offset(barLeft.value, size.height - h),
-                        size = Size(barWidth.value, h),
-                        cornerRadius = CornerRadius(h / 2),
-                    )
-                },
-        ) {
-            labels.forEachIndexed { i, label ->
-                val on = i == selected
-                val pad = with(density) { ChipWordPadding.toPx() }
-                val fg by animateColorAsState(if (on) onColor else offColor, tween(if (reduced) 0 else 220), label = "chipFg")
-                Box(
-                    Modifier
-                        .onPlaced { spots[i] = it.positionInParent().x + pad to it.size.width - 2 * pad }
-                        .pressable(onClick = { onPick(i) })
-                        .height(ChipRowHeight)
-                        .padding(horizontal = ChipWordPadding),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        label,
-                        color = fg,
-                        fontWeight = if (on) FontWeight.ExtraBold else FontWeight.SemiBold,
-                        fontSize = 16.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                    )
-                }
-            }
-        }
-    }
-}
-
-private val ChipRowPadding = 9.dp
-private val ChipWordPadding = 11.dp
-private val ChipRowHeight = 40.dp
-private val ChipRowFade = 28.dp
-private const val ChipBarShare = 0.6f
-private val ChipBarMin = 18.dp
-private val ChipBarHeight = 4.dp
-
+/** Home's recommendation tabs. The channel page's tab row, in the list, so it scrolls away. */
 @Composable
 private fun HomeChips(chips: List<FeedChip>, chosen: FeedChip?, onPick: (FeedChip) -> Unit) {
-    val selected = chips.indexOfFirst { chosen?.let { ch -> ch.title == it.title } ?: (it.token == null) }
-    UnderlineTabs(chips.map { it.title }, selected, { onPick(chips[it]) }, Modifier.padding(top = 2.dp, bottom = 10.dp))
+    val scheme = MaterialTheme.colorScheme
+    val selected = chips.indexOfFirst { chosen?.let { ch -> ch.title == it.title } ?: (it.token == null) }.coerceAtLeast(0)
+    val palette = ArtworkPalette(
+        background = scheme.background,
+        wash = scheme.background,
+        elevated = scheme.surfaceVariant,
+        accent = scheme.primary,
+        onBackground = scheme.onBackground,
+        onBackgroundVariant = scheme.onSurfaceVariant,
+        divider = scheme.outlineVariant,
+    )
+    Column(Modifier.fillMaxWidth()) {
+        ChannelTabRow(selected, chips.map { it.title }, palette, hairline = false, onTabSelected = { onPick(chips[it]) })
+        Spacer(Modifier.height(PageGutter))
+    }
 }
 
 @Composable

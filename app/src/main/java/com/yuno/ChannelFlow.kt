@@ -118,6 +118,7 @@ internal fun ChannelTabRow(
     selectedIndex: Int,
     tabs: List<String>,
     palette: ArtworkPalette,
+    hairline: Boolean = true,
     onTabSelected: (Int) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().background(palette.wash)) {
@@ -153,7 +154,7 @@ internal fun ChannelTabRow(
                 }
             }
         }
-        HorizontalDivider(color = palette.onBackgroundVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
+        if (hairline) HorizontalDivider(color = palette.onBackgroundVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
     }
 }
 
