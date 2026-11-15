@@ -56,6 +56,8 @@ data class VideoItem(
     val durationSec: Long,
     val views: Long,
     val uploaded: String?,
+    /** On air now. The thumbnail badge says LIVE in the duration's place. */
+    val live: Boolean = false,
     /** The card's own "Not interested" / "Don't recommend channel" (signed-in feeds only, #16). */
     val feedback: CardFeedback? = null,
 )

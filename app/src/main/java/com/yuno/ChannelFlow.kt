@@ -586,7 +586,7 @@ internal fun ChannelFeedVideo(video: VideoItem, palette: ArtworkPalette, onClick
     ) {
         Box(Modifier.padding(horizontal = PageGutter).clip(RoundedCornerShape(FeedVideoThumbRadius.dp))) {
             Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = FeedVideoThumbRadius, videoId = video.id)
-            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(5.dp))
+            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(5.dp), live = video.live)
             ResumeBar(video.id, Modifier.align(Alignment.BottomStart))
         }
         Row(Modifier.padding(horizontal = PageGutter, vertical = 12.dp)) {
@@ -622,7 +622,7 @@ internal fun ChannelVideoRow(video: VideoItem, palette: ArtworkPalette, onClick:
     ) {
         Box(Modifier.width(168.dp)) {
             Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 12, videoId = video.id)
-            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true)
+            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true, live = video.live)
             ResumeBar(video.id, Modifier.align(Alignment.BottomStart))
         }
         Spacer(Modifier.width(12.dp))
@@ -653,7 +653,7 @@ internal fun ChannelStackedVideo(
     ) {
         Box {
             Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 0, videoId = video.id)
-            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true)
+            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true, live = video.live)
             ResumeBar(video.id, Modifier.align(Alignment.BottomStart))
         }
         Column(Modifier.padding(horizontal = if (gutter) PageGutter else 0.dp)) {

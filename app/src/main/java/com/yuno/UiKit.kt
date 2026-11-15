@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Forward30
@@ -235,17 +236,17 @@ fun Thumbnail(url: String?, modifier: Modifier = Modifier, radius: Int = 22, vid
 }
 
 @Composable
-fun DurationPill(seconds: Long, modifier: Modifier = Modifier, small: Boolean = false) {
-    if (seconds <= 0) return
+fun DurationPill(seconds: Long, modifier: Modifier = Modifier, small: Boolean = false, live: Boolean = false) {
+    if (!live && seconds <= 0) return
     val fontSize = if (small) 10.5.sp else 11.5.sp
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(4.dp))
-            .background(Color.Black.copy(alpha = 0.72f))
+            .background(if (live) Color(0xFFCC0000) else Color.Black.copy(alpha = 0.72f))
             .padding(horizontal = if (small) 5.dp else 6.dp, vertical = if (small) 1.dp else 2.dp),
     ) {
         Text(
-            formatDuration(seconds * 1000),
+            if (live) stringResource(R.string.player_live) else formatDuration(seconds * 1000),
             color = Color.White,
             fontSize = fontSize,
             lineHeight = fontSize,
@@ -324,7 +325,7 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit, modifier: Modifier = Modifi
                 radius = FeedVideoThumbRadius,
                 videoId = video.id,
             )
-            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(5.dp))
+            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(5.dp), live = video.live)
             ResumeBar(video.id, Modifier.align(Alignment.BottomStart))
         }
         Row(modifier = Modifier.padding(horizontal = PageGutter, vertical = 12.dp)) {
@@ -370,7 +371,7 @@ fun VideoRow(video: VideoItem, onClick: () -> Unit, trailing: (@Composable () ->
     ) {
         Box(Modifier.width(140.dp)) {
             Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 16)
-            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true)
+            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true, live = video.live)
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {

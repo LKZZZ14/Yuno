@@ -64,6 +64,11 @@ class PlayerState(private val scope: CoroutineScope) {
         private set
     var durationMs by mutableLongStateOf(0L)
         private set
+    /** On air now. [liveDvr] is a window you can rewind; otherwise the bar stays full and locked. */
+    var live by mutableStateOf(false)
+        private set
+    var liveDvr by mutableStateOf(false)
+        private set
     /** The player's playback speed (see [PlaybackSpeed]). */
     var speed by mutableFloatStateOf(1f)
         private set
@@ -87,7 +92,8 @@ class PlayerState(private val scope: CoroutineScope) {
                 syncFromPlayer()
                 if (failed != null && failed.first == current?.id) {
                     botCheck = failed.second is org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
-                    error = YouTube.friendlyError(failed.second)
+                    error = if (failed.second.message == "YouTube refused the stream") "YouTube refused the stream. Try again."
+                    else YouTube.friendlyError(failed.second)
                     isBuffering = false
                 }
             }
@@ -634,13 +640,25 @@ class PlayerState(private val scope: CoroutineScope) {
 
     /** Seeks by [deltaMs], clamped to the video; returns how far it actually moved. */
     fun seekBy(deltaMs: Long): Long {
+        if (live && !liveDvr) return 0L
         val player = controller ?: return 0L
         val from = player.currentPosition
         seekTo(from + deltaMs)
         return positionMs - from
     }
 
+    /** MeeTube's live chip: park about 15s behind the edge of a rewindable stream. */
+    fun jumpToLiveEdge() {
+        val player = controller ?: return
+        if (!liveDvr) return
+        val duration = player.duration
+        val to = if (duration > 15_000) duration - 15_000 else C.TIME_UNSET
+        if (to == C.TIME_UNSET) player.seekToDefaultPosition() else player.seekTo(to)
+        player.play()
+    }
+
     fun seekTo(ms: Long) {
+        if (live && !liveDvr) return
         val player = controller ?: return
         val max = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
         val to = ms.coerceIn(0L, max)
@@ -857,6 +875,10 @@ class PlayerState(private val scope: CoroutineScope) {
         positionMs = player.currentPosition.coerceAtLeast(0L)
         bufferedMs = player.bufferedPosition.coerceAtLeast(0L)
         durationMs = player.duration.takeIf { it > 0 } ?: ((current?.durationSec ?: 0L) * 1000L)
+        val onAir = player.isCurrentMediaItemLive || details?.live == true
+        live = onAir
+        // A real rewind window is seekable and longer than the few seconds a locked live keeps buffered.
+        liveDvr = onAir && player.isCurrentMediaItemSeekable && player.duration > 30_000
         speed = player.playbackParameters.speed
         applyVideoTrack()
     }
@@ -892,14 +914,21 @@ class PlayerState(private val scope: CoroutineScope) {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_READY) suppressBufferingForVideoResume = false
+            if (playbackState == Player.STATE_READY) {
+                suppressBufferingForVideoResume = false
+                if (error != null) error = null
+            }
         }
 
         override fun onPlayerError(e: PlaybackException) {
             val status = (e.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
             Log.w(TAG, "playback error ${e.errorCodeName}${status?.let { " (HTTP $it)" } ?: ""} for ${current?.id}", e)
             // A refused or expired stream URL: the service is fetching fresh links (StreamRecoverer).
-            if (e.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS && StreamRecovery.recovering == current?.id) return
+            // A live refusal is reloaded at the edge; the message waits until that reload gives up.
+            val onAir = live || details?.live == true || controller?.isCurrentMediaItemLive == true
+            if (e.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS &&
+                (StreamRecovery.recovering == current?.id || onAir)
+            ) return
             // Fell out of the live window (a pause, or the phone slept). Jump back to the edge.
             if (e.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                 val now = System.currentTimeMillis()

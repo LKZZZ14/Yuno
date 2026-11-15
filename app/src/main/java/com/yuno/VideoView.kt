@@ -212,6 +212,7 @@ fun VideoContent(
     val currentInactiveTap by androidx.compose.runtime.rememberUpdatedState(onInactiveTap)
     fun toggleControls() { controlsVisible = !controlsVisible; touched() }
     fun seekStep(side: Int) {
+        if (state.live && !state.liveDvr) return
         val moved = state.seekBy(side * SeekStep.ms)
         burstSeconds += ((abs(moved) + 500) / 1000).toInt()
         burstTaps++
@@ -598,19 +599,20 @@ fun VideoContent(
                     }
                 }
                 val seek = if (fullscreen) 60.dp else 51.dp
+                val canSeek = enabled && (!state.live || state.liveDvr)
                 Row(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalArrangement = Arrangement.spacedBy(if (fullscreen) 32.dp else 18.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    OverlaySeek(-1, enabled, seek) { touched(); state.seekBy(-SeekStep.ms) }
+                    OverlaySeek(-1, canSeek, seek) { touched(); state.seekBy(-SeekStep.ms) }
                     OverlayPlay(
                         playing = state.isPlaying,
                         buffering = state.isBuffering || (state.loading && state.details == null),
                         size = if (fullscreen) 78.dp else 66.dp,
                         enabled = enabled,
                     ) { touched(); state.togglePlay() }
-                    OverlaySeek(1, enabled, seek) { touched(); state.seekBy(SeekStep.ms) }
+                    OverlaySeek(1, canSeek, seek) { touched(); state.seekBy(SeekStep.ms) }
                 }
                 Column(
                     Modifier.align(Alignment.BottomStart).fillMaxWidth()
@@ -621,13 +623,22 @@ fun VideoContent(
                         ),
                 ) {
                     val shownMs = state.scrubPreviewMs ?: state.positionMs
+                    val lockedLive = state.live && !state.liveDvr
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            Text(formatDuration(shownMs), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                            Text(
-                                " / " + formatDuration(state.durationMs),
-                                color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-                            )
+                            if (lockedLive) {
+                                LiveChip(atEdge = true, enabled = false, onClick = {})
+                            } else {
+                                Text(formatDuration(shownMs), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                Text(
+                                    " / " + formatDuration(state.durationMs),
+                                    color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                                )
+                                if (state.live) {
+                                    Spacer(Modifier.width(10.dp))
+                                    LiveChip(state.durationMs - state.positionMs <= 20_000) { touched(); state.jumpToLiveEdge() }
+                                }
+                            }
                             state.chapterAt(shownMs)?.let {
                                 Text(
                                     " · $it", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold,
@@ -682,12 +693,13 @@ fun VideoContent(
                     .height(EdgeScrubTouchPadAbove * 2)
                     .graphicsLayer { alpha = scrubFade }
             }
+            val lockedLive = state.live && !state.liveDvr
             Scrubber(
-                segments = segments,
-                positionMs = state.positionMs,
-                bufferedMs = state.bufferedMs,
-                durationMs = state.durationMs,
-                enabled = interactive,
+                segments = if (lockedLive) emptyList() else segments,
+                positionMs = if (lockedLive) 1L else state.positionMs,
+                bufferedMs = if (lockedLive) 1L else state.bufferedMs,
+                durationMs = if (lockedLive) 1L else state.durationMs,
+                enabled = interactive && !lockedLive,
                 active = scrubActive,
                 relativeDrag = true,
                 edgeToEdge = portraitEdgeScrub,
@@ -797,7 +809,8 @@ fun AudioOnlyStage(
                 fun Modifier.slide(side: Int) = graphicsLayer {
                     translationX = -side * (1f - gather()) * (gap + (play + skip) / 2).toPx()
                 }
-                Box(Modifier.slide(-1)) { TonalSkip(seekIcon(false), seekLabel(-1), interactive, skip) { state.seekBy(-SeekStep.ms) } }
+                val canSeek = interactive && (!state.live || state.liveDvr)
+                Box(Modifier.slide(-1)) { TonalSkip(seekIcon(false), seekLabel(-1), canSeek, skip) { state.seekBy(-SeekStep.ms) } }
                 Box(Modifier.graphicsLayer { val k = lerpF(0.6f, 1f, gather()); scaleX = k; scaleY = k }) {
                     MorphPlayButton(
                         playing = state.isPlaying,
@@ -808,7 +821,7 @@ fun AudioOnlyStage(
                         enabled = interactive,
                     ) { state.togglePlay() }
                 }
-                Box(Modifier.slide(1)) { TonalSkip(seekIcon(true), seekLabel(1), interactive, skip) { state.seekBy(SeekStep.ms) } }
+                Box(Modifier.slide(1)) { TonalSkip(seekIcon(true), seekLabel(1), canSeek, skip) { state.seekBy(SeekStep.ms) } }
             }
             // Same place and padding as the video's bottom bar (its row is the fullscreen button's 34 dp).
             Column(
@@ -819,21 +832,31 @@ fun AudioOnlyStage(
                     .graphicsLayer { translationY = (1f - gather()) * 16.dp.toPx() },
             ) {
                 var scrubPreview by remember { mutableStateOf<Long?>(null) }
+                val lockedLive = state.live && !state.liveDvr
                 Row(Modifier.height(34.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(formatDuration(scrubPreview ?: state.positionMs), color = c.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        " / " + formatDuration(state.durationMs),
-                        color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f),
-                    )
+                    if (lockedLive) {
+                        LiveChip(atEdge = true, enabled = false, onClick = {})
+                        Spacer(Modifier.weight(1f))
+                    } else {
+                        Text(formatDuration(scrubPreview ?: state.positionMs), color = c.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            " / " + formatDuration(state.durationMs),
+                            color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                        )
+                        if (state.live) {
+                            Spacer(Modifier.width(10.dp))
+                            LiveChip(state.durationMs - state.positionMs <= 20_000) { state.jumpToLiveEdge() }
+                        }
+                        Spacer(Modifier.weight(1f))
+                    }
                     state.askSegment?.let { ask -> SkipSegmentPill(ask, enabled = interactive) { state.skipSegment(ask) } }
                 }
                 Scrubber(
-                    segments = if (SponsorBlock.enabled) state.segments.filter { it.action != SponsorBlock.Action.Off } else emptyList(),
-                    positionMs = state.positionMs,
-                    bufferedMs = state.bufferedMs,
-                    durationMs = state.durationMs,
-                    enabled = interactive,
+                    segments = if (lockedLive || !SponsorBlock.enabled) emptyList() else state.segments.filter { it.action != SponsorBlock.Action.Off },
+                    positionMs = if (lockedLive) 1L else state.positionMs,
+                    bufferedMs = if (lockedLive) 1L else state.bufferedMs,
+                    durationMs = if (lockedLive) 1L else state.durationMs,
+                    enabled = interactive && !lockedLive,
                     onPreview = { scrubPreview = it },
                     onSeek = { scrubPreview = null; state.seekTo(it) },
                     track = c.surfaceContainerHighest,
@@ -1212,6 +1235,22 @@ private fun OverlayTile(
 }
 
 /** A worded control on the video (speed, quality): a capsule [height] tall, otherwise [OverlayTile]'s look. */
+/** MeeTube's live chip: YouTube red, full at the edge, dimmed while a rewindable stream is behind it. */
+@Composable
+private fun LiveChip(atEdge: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    Text(
+        stringResource(R.string.player_live),
+        color = Color.White.copy(alpha = if (atEdge) 1f else 0.55f),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xE6CC0000))
+            .pressable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 2.dp),
+    )
+}
+
 @Composable
 private fun OverlayPill(
     label: String,

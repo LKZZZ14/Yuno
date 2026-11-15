@@ -1178,6 +1178,7 @@ object InnerTube {
             avatar = null, durationSec = 0,
             views = parseViews(o.text("viewCountText")),
             uploaded = o.text("publishedTimeText"),
+            live = isOnAir(o),
         )
     }
 
@@ -1303,6 +1304,21 @@ object InnerTube {
      * channel is live now and its other videos play fine. Older renderers: BADGE_STYLE_TYPE_LIVE_NOW,
      * the time overlay styled LIVE / UPCOMING, or `upcomingEventData` (the markers NewPipe reads).
      */
+    /** On air right now, as opposed to a premiere that has not started. The thumbnail badge reads this. */
+    internal fun isOnAir(o: JSONObject): Boolean {
+        if (o.collectStrings("style").any { it == "BADGE_STYLE_TYPE_LIVE_NOW" || it == "LIVE" }) return true
+        if (o.text("lengthText")?.equals("LIVE", ignoreCase = true) == true) return true
+        val overlays = o.optJSONArray("thumbnailOverlays")
+        if (overlays != null) {
+            for (i in 0 until overlays.length()) {
+                val status = overlays.optJSONObject(i)?.optJSONObject("thumbnailOverlayTimeStatusRenderer") ?: continue
+                if (status.optString("style") == "LIVE" || status.text("text")?.equals("LIVE", ignoreCase = true) == true) return true
+            }
+        }
+        val image = o.optJSONObject("contentImage") ?: return false
+        return image.collectStrings("badgeStyle").any { it == "THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE" }
+    }
+
     internal fun isLive(o: JSONObject): Boolean {
         if (o.has("upcomingEventData")) return true
         if (o.collectStrings("style").any { it == "BADGE_STYLE_TYPE_LIVE_NOW" || it == "LIVE" || it == "UPCOMING" }) return true
@@ -1366,6 +1382,7 @@ object InnerTube {
             views = parseViews(o.text("viewCountText") ?: o.text("shortViewCountText") ?: infoRuns.firstOrNull { it.contains("view") }),
             uploaded = o.text("publishedTimeText") ?: infoRuns.firstOrNull { it.contains("ago") },
             feedback = feedbackOf(o),
+            live = isOnAir(o),
         )
     }
 
@@ -1394,6 +1411,7 @@ object InnerTube {
             views = parseViews(parts.firstOrNull { it.contains("view") }),
             uploaded = parts.firstOrNull { it.contains("ago") },
             feedback = feedbackOf(o),
+            live = isOnAir(o),
         )
     }
 

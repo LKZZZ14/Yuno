@@ -225,19 +225,31 @@ private class StreamRecoverer(
     private val main = Handler(Looper.getMainLooper())
     private var lastId: String? = null
     private var lastPositionMs = 0L
+    private var lastAttemptMs = 0L
 
     override fun onPlayerError(error: PlaybackException) {
         if (error.errorCode != PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) return
         val item = player.currentMediaItem ?: return
         val id = item.mediaId
         val position = player.currentPosition
-        if (id == lastId && position < lastPositionMs + PROGRESS_MS) {
+        val live = player.isCurrentMediaItemLive
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (live) {
+            // A live refusal reloads the manifest at the edge. Another one inside 15s is a real stop.
+            if (id == lastId && now - lastAttemptMs < LIVE_RETRY_MS) {
+                Log.w("Yuno", "live stream refused again for $id; giving up")
+                StreamRecovery.recovering = null
+                StreamRecovery.failed = id to java.io.IOException("YouTube refused the stream")
+                return
+            }
+        } else if (id == lastId && position < lastPositionMs + PROGRESS_MS) {
             Log.w("Yuno", "stream refused again for $id at ${position / 1000}s; giving up")
             return
         }
         lastId = id
         lastPositionMs = position
-        Log.i("Yuno", "stream refused for $id; re-extracting and resuming at ${position / 1000}s")
+        lastAttemptMs = now
+        Log.i("Yuno", "stream refused for $id; re-extracting" + if (live) " at the live edge" else " and resuming at ${position / 1000}s")
         StreamRecovery.failed = null
         StreamRecovery.recovering = id
         StreamCache.invalidate(id)
@@ -248,7 +260,7 @@ private class StreamRecoverer(
                 // The user moved on (another video, Try again) while the links loaded.
                 if (player.currentMediaItem?.mediaId != id || player.playerError == null) return@post
                 result
-                    .onSuccess { resume(item, position) }
+                    .onSuccess { resume(item, if (live) C.TIME_UNSET else position) }
                     .onFailure {
                         Log.w("Yuno", "re-extracting $id failed", it)
                         StreamRecovery.failed = id to it
@@ -271,6 +283,7 @@ private class StreamRecoverer(
 
     private companion object {
         const val PROGRESS_MS = 30_000L
+        const val LIVE_RETRY_MS = 15_000L
     }
 }
 
