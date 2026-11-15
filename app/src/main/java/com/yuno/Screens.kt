@@ -82,6 +82,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import com.yuno.icons.SfIcons
 
 // ── Home / Subscriptions / Library ─────────────────────────────────────────────
@@ -196,6 +197,15 @@ private fun HomeChipPager(
     }
     val headerDp = with(androidx.compose.ui.platform.LocalDensity.current) { headerPx.toDp() }
     val top = pageContentTop()
+    // The wordmark spacer is 0 until the overlay is measured, and growing it shoves the list
+    // down by that height, so a fresh open lands with the tabs already off the top.
+    var openedAtTop by remember { mutableStateOf(false) }
+    LaunchedEffect(headerPx > 0) {
+        if (headerPx <= 0 || openedAtTop) return@LaunchedEffect
+        withFrameNanos { }
+        chips.forEach { chip -> lists[chip.title]?.requestScrollToItem(0) }
+        openedAtTop = true
+    }
     BarPullRefresh(refreshing = activeFeed.refreshing, onRefresh = activeFeed::refresh, state = pullState) {
         Box(Modifier.fillMaxSize().clipToBounds()) {
             HorizontalPager(
@@ -227,7 +237,7 @@ private fun HomeChipPager(
                     .fillMaxWidth(),
             ) {
                 Spacer(Modifier.height(top))
-                LargePageBrandMark()
+                LargePageBrandMark(contentGap = 4.dp)
                 HomeChips(chips, pager.currentPage) { index ->
                     if (index != pager.currentPage) scope.launch { pager.animateScrollToPage(index) }
                 }

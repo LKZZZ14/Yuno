@@ -228,7 +228,11 @@ private val LargePageBrandMarkSize = 42.dp
 private const val WordmarkAspect = 1438f / 736f
 
 @Composable
-fun LargePageBrandMark(modifier: Modifier = Modifier) {
+fun LargePageBrandMark(
+    modifier: Modifier = Modifier,
+    /** Room under the wordmark before the next row. Home's tabs sit closer than a page title's body. */
+    contentGap: Dp = LargePageTitleContentGap,
+) {
     val pull = LocalBarPullRefresh.current
     val extra = pull?.extraPadding() ?: 0.dp
     val inset = (LargePageTitleBlockHeight - LargePageBrandMarkSize) / 2
@@ -239,7 +243,7 @@ fun LargePageBrandMark(modifier: Modifier = Modifier) {
                 start = PageGutter,
                 end = PageGutter,
                 top = inset + extra,
-                bottom = inset + LargePageTitleContentGap + extra,
+                bottom = inset + contentGap + extra,
             )
             .height(LargePageBrandMarkSize)
             .aspectRatio(WordmarkAspect)

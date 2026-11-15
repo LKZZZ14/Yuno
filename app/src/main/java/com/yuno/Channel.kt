@@ -69,6 +69,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -91,6 +92,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.yuno.icons.SfIcons
 
@@ -665,17 +667,43 @@ private fun ChannelPagerBody(
     var pinnedPage by remember { mutableIntStateOf(-1) }
     var openedAtTop by remember { mutableStateOf(false) }
     val swiping = pager.isScrollInProgress
-    if (!swiping && pager.settledPage == pinnedPage) offsetPx = liveOffset
-    // A swipe keeps the collapse. The page you land on is already scrolled by that much, so the
-    // header does not spring open when the new list is sitting at its top.
+    if (!swiping && openedAtTop && pinnedPage != pager.settledPage) pinnedPage = pager.settledPage
+    if (!swiping && openedAtTop && pager.settledPage == pinnedPage) offsetPx = liveOffset
+    // A sideways move stays level, including when the open tab is scrolled down past the header.
+    var capturedFrom by remember { mutableIntStateOf(-1) }
+    var anchorIndex by remember { mutableIntStateOf(0) }
+    var anchorOffset by remember { mutableIntStateOf(0) }
     SideEffect {
-        if (swiping || !openedAtTop) return@SideEffect
-        val page = pager.settledPage
-        if (page == pinnedPage) return@SideEffect
-        val px = headerPx.toInt()
-        val off = (-offsetPx).roundToInt().coerceIn(0, px)
-        if (px > 0) listAt(page).requestScrollToItem(0, off)
-        pinnedPage = page
+        if (!swiping || !openedAtTop) {
+            capturedFrom = -1
+            return@SideEffect
+        }
+        val fromPage = pager.settledPage.coerceIn(0, tabs.lastIndex)
+        if (capturedFrom != fromPage) {
+            capturedFrom = fromPage
+            val from = listAt(fromPage)
+            anchorIndex = from.firstVisibleItemIndex
+            anchorOffset = from.firstVisibleItemScrollOffset
+        }
+        tabs.forEachIndexed { index, _ ->
+            if (index == fromPage) return@forEachIndexed
+            val list = listAt(index)
+            if (list.firstVisibleItemIndex != anchorIndex || list.firstVisibleItemScrollOffset != anchorOffset) {
+                list.requestScrollToItem(anchorIndex, anchorOffset)
+            }
+        }
+    }
+    // The tab you stop on glides back to the top. A second swipe cancels the one in between.
+    LaunchedEffect(tabs) {
+        var seen = pager.settledPage
+        snapshotFlow { pager.isScrollInProgress to pager.settledPage }
+            .collectLatest { (moving, page) ->
+                if (moving || page == seen) return@collectLatest
+                seen = page
+                val list = listAt(page)
+                if (list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0) return@collectLatest
+                list.animateScrollToItem(0)
+            }
     }
     // Only the open list. scrollToItem on a tab that is not composed never returns, and the
     // page stayed blank. The sticky tab spacer can shove this list down as the header is measured.
@@ -711,6 +739,7 @@ private fun ChannelPagerBody(
             state = pager,
             modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.Top,
+            beyondViewportPageCount = 1,
         ) { index ->
             val tab = tabs.getOrNull(index) ?: return@HorizontalPager
             // The page that's on screen loads itself. Settling on it is not the only chance:
