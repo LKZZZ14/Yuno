@@ -194,7 +194,7 @@ private fun HomeChips(chips: List<FeedChip>, chosen: FeedChip?, onPick: (FeedChi
         divider = scheme.outlineVariant,
     )
     Column(Modifier.fillMaxWidth()) {
-        ChannelTabRow(selected, chips.map { it.title }, palette, hairline = false, onTabSelected = { onPick(chips[it]) })
+        ChannelTabRow(selected, chips.map { it.title }, palette) { onPick(chips[it]) }
         Spacer(Modifier.height(PageGutter))
     }
 }

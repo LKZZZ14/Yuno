@@ -118,7 +118,6 @@ internal fun ChannelTabRow(
     selectedIndex: Int,
     tabs: List<String>,
     palette: ArtworkPalette,
-    hairline: Boolean = true,
     onTabSelected: (Int) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().background(palette.wash)) {
@@ -147,14 +146,16 @@ internal fun ChannelTabRow(
                 ) {
                     Text(
                         text = title,
+                        modifier = Modifier.padding(horizontal = 16.dp),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                         maxLines = 1,
+                        softWrap = false,
                     )
                 }
             }
         }
-        if (hairline) HorizontalDivider(color = palette.onBackgroundVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
+        HorizontalDivider(color = palette.onBackgroundVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
     }
 }
 
