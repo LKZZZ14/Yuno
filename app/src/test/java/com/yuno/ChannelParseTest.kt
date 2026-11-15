@@ -21,6 +21,7 @@ class ChannelParseTest {
         assertEquals(listOf(ChannelTab.Home, ChannelTab.Videos, ChannelTab.Shorts, ChannelTab.Playlists), home.tabs.keys.toList())
         assertEquals("EgZ2aWRlb3PyBgQKAjoA", home.tabs[ChannelTab.Videos])
         assertEquals("AF8d72mA41M", home.featured?.id)
+        assertEquals("@veritasium", home.handle)
         assertTrue(home.featured!!.title.isNotBlank())
     }
 

@@ -303,6 +303,8 @@ fun YunoApp() {
     // On Shorts the app's video waits, paused, out of sight (no mini-player).
     val glassOn = LiquidGlassSetting.enabled && isGlassSupported()
     val hasMini = player.current != null && tab != Tab.Shorts && !glassOn
+    // A channel page reports the colour its wash settles into, for the bottom fade.
+    var channelFoot by remember { mutableStateOf<Color?>(null) }
     val contentPadding = if (wide) {
         PaddingValues(bottom = stackBottom + (if (hasMini) MiniHeight + MiniGap else 0.dp) + 16.dp)
     } else {
@@ -556,11 +558,11 @@ fun YunoApp() {
                     is AppRoute.Channel -> ChannelScreen(
                         channelStates.getOrPut(pageRoute.url) { ChannelState(pageRoute.url, scope) },
                         contentPadding,
-                        onBack = goBack,
                         onOpen = { v -> if (tab == Tab.Shorts) tab = shortsFrom; player.open(v) },
                         onOpenShorts = ::openShorts,
                         onOpenPlaylist = { navigator.push(AppRoute.Playlist(it)) },
                         onMessage = { player.actionMessage = it },
+                        onFootColor = { channelFoot = it },
                     )
                 }
             }
@@ -572,7 +574,8 @@ fun YunoApp() {
             }
         }
         val route = navigator.visibleRoute()
-        if (route !is AppRoute.Channel && !(route == null && tab == Tab.Shorts)) {
+        if (!(route == null && tab == Tab.Shorts)) {
+            val shareContext = LocalContext.current
             PageTopBar(
                 onBack = if (route != null) goBack else null,
                 pull = when {
@@ -587,6 +590,13 @@ fun YunoApp() {
                     if (route == null && tab == Tab.Home) UpdateAction()
                 },
             ) {
+                if (route is AppRoute.Channel) ShareAction {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, route.url)
+                    }
+                    shareContext.startActivity(Intent.createChooser(send, null))
+                }
                 if (route == null) HeaderActions(onSearch = openSearchPage, onAccount = openSettingsPage)
             }
         }
@@ -620,7 +630,7 @@ fun YunoApp() {
         TopChromeLayer(topChrome, Modifier.align(Alignment.TopCenter).fillMaxWidth())
 
         // Ledgii's bottom vignette
-        val pageColor = c.background
+        val pageColor = if (navigator.visibleRoute() is AppRoute.Channel) channelFoot ?: c.background else c.background
         val vignette = remember(pageColor) { vignetteBrush(pageColor, opaqueAtTop = false) }
         Box(
             Modifier

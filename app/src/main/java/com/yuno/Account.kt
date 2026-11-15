@@ -85,6 +85,8 @@ data class ChannelHome(
     val featured: VideoItem?,
     val shelves: List<ChannelShelf>,
     val subscribed: Boolean? = null,
+    /** The channel's @handle, from the page's vanity URL. */
+    val handle: String? = null,
 )
 
 enum class LikeStatus { Like, Dislike, None }
@@ -891,7 +893,13 @@ object InnerTube {
                 "shelfRenderer", "reelShelfRenderer" -> parseShelf(obj, key == "reelShelfRenderer", channelId, tabs.keys)?.let(shelves::add)
             }
         }
-        return ChannelHome(tabs, featured, shelves)
+        return ChannelHome(tabs, featured, shelves, handle = channelHandle(root))
+    }
+
+    /** `@name` from `channelMetadataRenderer.vanityChannelUrl` (`http://www.youtube.com/@name`). */
+    internal fun channelHandle(root: JSONObject): String? {
+        val vanity = root.findObject("channelMetadataRenderer")?.optString("vanityChannelUrl").orEmpty()
+        return vanity.substringAfterLast('/').substringBefore('?').takeIf { it.startsWith("@") && it.length > 1 }
     }
 
     private fun parseFeatured(o: JSONObject): VideoItem? {

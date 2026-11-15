@@ -193,22 +193,20 @@ fun CommentSkeleton(avatar: Dp = 36.dp, start: Dp = 0.dp, lines: Int = 2) {
 @Composable
 fun ChannelSkeletons() {
     SkeletonGroup {
-        Column {
-            Column(Modifier.padding(horizontal = PageGutter)) {
-                Box(Modifier.fillMaxWidth().aspectRatio(5.6f).bone(RoundedCornerShape(FeedVideoThumbRadius.dp)))
-                Spacer(Modifier.height(16.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(76.dp).bone(CircleShape))
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Box(Modifier.textBone(0.55f))
-                        Spacer(Modifier.height(8.dp))
-                        Box(Modifier.textBone(0.32f))
-                        Spacer(Modifier.height(6.dp))
-                        Box(Modifier.textBone(0.44f))
-                    }
+        Column(Modifier.padding(horizontal = PageGutter)) {
+            Box(Modifier.fillMaxWidth().aspectRatio(5.6f / 1.55f).bone(RoundedCornerShape(14.dp)))
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(72.dp).bone(CircleShape))
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f).height(72.dp), verticalArrangement = Arrangement.SpaceEvenly) {
+                    Box(Modifier.fillMaxWidth(0.62f).height(16.dp).bone(RoundedCornerShape(6.dp)))
+                    Box(Modifier.fillMaxWidth(0.36f).height(12.dp).bone(RoundedCornerShape(6.dp)))
+                    Box(Modifier.textBone(0.42f))
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.fillMaxWidth().height(52.dp).bone(CircleShape))
         }
     }
 }

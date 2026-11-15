@@ -205,8 +205,17 @@ fun SubscriptionsScreen(
  * to. Home's categories and a channel's tabs.
  */
 @Composable
-fun UnderlineTabs(labels: List<String>, selected: Int, onPick: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun UnderlineTabs(
+    labels: List<String>,
+    selected: Int,
+    onPick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    selectedColor: Color? = null,
+    idleColor: Color? = null,
+) {
     val c = MaterialTheme.colorScheme
+    val onColor = selectedColor ?: c.primary
+    val offColor = idleColor ?: c.onSurfaceVariant
     val reduced = rememberReducedMotion()
     val density = LocalDensity.current
     val scroll = rememberScrollState()
@@ -266,7 +275,7 @@ fun UnderlineTabs(labels: List<String>, selected: Int, onPick: (Int) -> Unit, mo
                     if (!barShown) return@drawBehind
                     val h = ChipBarHeight.toPx()
                     drawRoundRect(
-                        c.primary,
+                        onColor,
                         topLeft = Offset(barLeft.value, size.height - h),
                         size = Size(barWidth.value, h),
                         cornerRadius = CornerRadius(h / 2),
@@ -276,7 +285,7 @@ fun UnderlineTabs(labels: List<String>, selected: Int, onPick: (Int) -> Unit, mo
             labels.forEachIndexed { i, label ->
                 val on = i == selected
                 val pad = with(density) { ChipWordPadding.toPx() }
-                val fg by animateColorAsState(if (on) c.primary else c.onSurfaceVariant, tween(if (reduced) 0 else 220), label = "chipFg")
+                val fg by animateColorAsState(if (on) onColor else offColor, tween(if (reduced) 0 else 220), label = "chipFg")
                 Box(
                     Modifier
                         .onPlaced { spots[i] = it.positionInParent().x + pad to it.size.width - 2 * pad }

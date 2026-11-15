@@ -63,6 +63,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -522,6 +523,16 @@ fun HeaderActions(onSearch: () -> Unit, onAccount: () -> Unit) {
         Icon(SfIcons.Search, contentDescription = "Search", tint = tint, modifier = Modifier.size(24.dp))
     }
     AccountAction(onAccount)
+}
+
+/** Share, as one slot in [PageActions]. The artist page's trailing share. */
+@Composable
+fun ShareAction(onClick: () -> Unit) {
+    val glass = LocalLiquidGlassEnabled.current && isGlassSupported()
+    val tint = if (glass) glassContentColor() else MaterialTheme.colorScheme.onSurface
+    Box(Modifier.size(TopControl).pressable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(SfIcons.Share, contentDescription = stringResource(R.string.ui_share), tint = tint, modifier = Modifier.size(24.dp))
+    }
 }
 
 /** The account photo at 28dp, or a person glyph on a filled circle when signed out. */

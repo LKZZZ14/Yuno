@@ -6,25 +6,20 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -36,24 +31,26 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -62,11 +59,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
@@ -74,7 +72,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 /** Opens a channel page from anywhere (player channel row, card avatars). Provided by the shell. */
 val LocalChannelOpener = staticCompositionLocalOf<(String) -> Unit> { {} }
@@ -247,19 +244,40 @@ private const val TabsKey = "tabs"
 fun ChannelScreen(
     state: ChannelState,
     contentPadding: PaddingValues,
-    onBack: () -> Unit,
+    onOpen: (VideoItem) -> Unit,
+    onOpenShorts: (ShortsList) -> Unit,
+    onOpenPlaylist: (PlaylistRef) -> Unit,
+    onMessage: (String) -> Unit,
+    /** The colour the shell's bottom fade should settle into. Null once this page is gone. */
+    onFootColor: (Color?) -> Unit = {},
+) {
+    val d = state.details
+    // The page is this colour from top to bottom. The banner is only the picture.
+    val palette = rememberArtworkPalette(d?.banner ?: d?.avatar)
+    SideEffect { onFootColor(palette.wash) }
+    DisposableEffect(Unit) { onDispose { onFootColor(null) } }
+
+    val scheme = MaterialTheme.colorScheme
+    MaterialTheme(colorScheme = scheme, typography = BitChordTypography, shapes = MaterialTheme.shapes) {
+        CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodyLarge.merge(OwnDirectionText)) {
+            ChannelPage(state, contentPadding, palette, onOpen, onOpenShorts, onOpenPlaylist, onMessage)
+        }
+    }
+}
+
+@Composable
+private fun ChannelPage(
+    state: ChannelState,
+    contentPadding: PaddingValues,
+    palette: ArtworkPalette,
     onOpen: (VideoItem) -> Unit,
     onOpenShorts: (ShortsList) -> Unit,
     onOpenPlaylist: (PlaylistRef) -> Unit,
     onMessage: (String) -> Unit,
 ) {
-    val c = MaterialTheme.colorScheme
     val columns = gridColumns()
     val list = state.list
-    val scope = rememberCoroutineScope()
-    val density = LocalDensity.current
-    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val statusPx = with(density) { statusTop.toPx() }
+    val barHeight = topBarHeight()
     val tabs = state.tabs
     val current = state.current
     val hasTabs = tabs.size > 1
@@ -275,82 +293,38 @@ fun ChannelScreen(
     }
     LaunchedEffect(nearEnd, current, shownCount) { if (nearEnd && shownCount > 0) state.loadMore() }
 
-    // Where the list's content starts (the header's height), for keeping the tabs in place on a switch.
-    var topPx by remember { mutableFloatStateOf(0f) }
-    /** The tabs row has scrolled up to (or under) [line]. */
-    fun tabsAbove(line: Float): Boolean {
-        val info = list.layoutInfo
-        val item = info.visibleItemsInfo.firstOrNull { it.key == TabsKey } ?: return list.firstVisibleItemIndex > 1
-        // A pixel's slack: a switch scrolls the row onto the line exactly.
-        return item.offset - info.viewportStartOffset < line + 1f
-    }
-    // Once the tabs are pinned, a new tab (or order) starts right under them, as YouTube's does. The
-    // list keeps its place by the item under the header's edge, which the new content replaces (a
-    // spinner, then the sort chips, then videos), so the tabs are held there until a finger scrolls.
-    var holdTabs by remember { mutableStateOf(false) }
-    LaunchedEffect(list) { list.interactionSource.interactions.collect { if (it is DragInteraction.Start) holdTabs = false } }
-    LaunchedEffect(holdTabs, current, shownCount, state.videos.chips.size, state.videos.chip) {
-        if (holdTabs) list.scrollToItem(1, (topPx - statusPx).roundToInt())
-    }
-    fun holdIfPinned() { if (tabsAbove(topPx)) holdTabs = true }
     fun pick(t: ChannelTab) {
         if (t == current) return
-        holdIfPinned()
         state.show(t)
     }
     val tabLabels = tabs.map { tabLabel(it) }
+    val page = palette.wash
 
-    Box(Modifier.fillMaxSize().background(c.background)) {
-    CollapsingHeaderLayout(
-        header = {
-        Row(
-            Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CircleAction(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.ui_back), onBack)
-            Spacer(Modifier.width(12.dp))
-            Text(
-                state.details?.name.orEmpty(),
-                fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = (-0.6).sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-        }
-        },
-        // The tabs stick under the header once the profile has scrolled away (under the status bar
-        // while the header is hidden), with a soft fade under them.
-        pinned = if (!hasTabs) null else { headerBottom ->
-            val pinned by remember(statusPx) { derivedStateOf { tabsAbove(maxOf(headerBottom(), statusPx)) } }
-            if (pinned) {
-                val page = c.background
-                val fade = remember(page) { vignetteBrush(page, opaqueAtTop = true) }
-                Column(Modifier.fillMaxWidth().offset { IntOffset(0, (maxOf(headerBottom(), statusPx) - statusPx).roundToInt()) }) {
-                    Box(Modifier.fillMaxWidth().background(page).padding(top = statusTop)) {
-                        UnderlineTabs(tabLabels, tabs.indexOf(current), { pick(tabs[it]) }, TabsRowModifier)
-                    }
-                    Box(Modifier.fillMaxWidth().height(14.dp).drawBehind { drawRect(fade) })
-                }
-            }
-        },
-    ) { top ->
-        SideEffect { topPx = with(density) { top.toPx() } }
+    Box(Modifier.fillMaxSize().background(page)) {
         val d = state.details
         when {
-            d == null && state.error != null -> Box(Modifier.padding(top = top)) { EmptyState(
-                Icons.Rounded.CloudOff, stringResource(R.string.ui_channel_error_title), state.error.orEmpty(),
-                action = { PillButton(stringResource(R.string.ui_try_again), state::load) },
-            ) }
-            else -> LazyColumn(state = list, contentPadding = contentPadding.withTop(top)) {
+            d == null && state.error != null -> Box(Modifier.padding(top = barHeight)) {
+                EmptyState(
+                    Icons.Rounded.CloudOff, stringResource(R.string.ui_channel_error_title), state.error.orEmpty(),
+                    action = { PillButton(stringResource(R.string.ui_try_again), state::load) },
+                )
+            }
+            else -> LazyColumn(state = list, contentPadding = contentPadding.withTop(barHeight)) {
                 if (d == null) {
                     item { ChannelSkeletons() }
                     items(3) { FeedSkeletons(1) }
                     return@LazyColumn
                 }
-                item(key = ProfileKey) { ChannelProfile(state, d, onMessage) }
+                item(key = ProfileKey) { ChannelName(state, d, palette, onMessage) }
+                item(key = "about") { ChannelAbout(d, palette) }
                 if (hasTabs) item(key = TabsKey) {
-                    UnderlineTabs(tabLabels, tabs.indexOf(current), { pick(tabs[it]) }, TabsRowModifier)
+                    UnderlineTabs(
+                        tabLabels, tabs.indexOf(current), { pick(tabs[it]) }, TabsRowModifier,
+                        selectedColor = palette.accent, idleColor = palette.onBackgroundVariant,
+                    )
                 }
                 when (current) {
-                    ChannelTab.Home -> homeTab(state, columns, onOpen, onOpenShorts, onOpenPlaylist, onLink = { link ->
+                    ChannelTab.Home -> homeTab(state, columns, palette, onOpen, onOpenShorts, onOpenPlaylist, onLink = { link ->
                         when (link) {
                             is ShelfLink.Tab -> pick(link.tab)
                             is ShelfLink.Playlist -> onOpenPlaylist(link.ref)
@@ -358,7 +332,9 @@ fun ChannelScreen(
                     })
                     ChannelTab.Videos -> {
                         val feed = state.videos
-                        if (feed.chips.size > 1) item(key = "sorts") { SortChips(feed.chips, feed.chip) { holdIfPinned(); feed.selectChip(it) } }
+                        if (feed.chips.size > 1) item(key = "sorts") {
+                            SortChips(feed.chips, feed.chip, palette) { feed.selectChip(it) }
+                        }
                         videoCards(feed.videos, columns, onOpen)
                         feedTail(feed.loading || feed.hasMore || feed.waiting, feed.error.takeIf { feed.videos.isEmpty() }, feed::refresh,
                             empty = if (feed.loadedEmpty) R.string.ui_channel_no_videos else null, alone = feed.videos.isEmpty())
@@ -377,7 +353,7 @@ fun ChannelScreen(
                             empty = if (feed.loadedEmpty) R.string.ui_channel_no_shorts else null, alone = feed.videos.isEmpty())
                     }
                     ChannelTab.Playlists -> {
-                        items(state.playlists, key = { "playlist-" + it.id }) { p -> PlaylistRow(p) { onOpenPlaylist(p) } }
+                        items(state.playlists, key = { "playlist-" + it.id }) { p -> PlaylistRow(p, palette) { onOpenPlaylist(p) } }
                         feedTail(state.playlistsLoading || state.playlistsHaveMore || !state.playlistsTried, state.playlistsError.takeIf { state.playlists.isEmpty() },
                             { state.loadPlaylists(more = false) }, empty = if (state.playlistsEmpty) R.string.ui_channel_no_playlists else null,
                             alone = state.playlists.isEmpty())
@@ -385,11 +361,184 @@ fun ChannelScreen(
                 }
             }
         }
-    }
+        ChannelTopFade(list, page, Modifier.align(Alignment.TopCenter))
     }
 }
 
-/** The tabs row's spacing (in the list and pinned): a little air above, the bar's room below. */
+/** The artist page's side circles, and the gap between the pill and the bell. */
+private val ArtistSideButton = 52.dp
+private val ArtistActionGap = 12.dp
+private const val LightFillAlpha = 0.07f
+private const val CircleEdgeAlpha = 0.10f
+
+/** The old wide banner was 5.6. This is a bit taller than the last step, with a tighter corner. */
+private const val BannerAspect = 5.6f / 1.55f
+private const val BannerRadius = 14
+private val ProfileSize = 72
+
+/**
+ * Banner, then the profile picture beside the name, @handle and subscriber count
+ * (those three share the picture's height, spaced evenly), then a full-width Subscribe pill.
+ */
+@Composable
+private fun ChannelName(state: ChannelState, d: ChannelDetails, palette: ArtworkPalette, onMessage: (String) -> Unit) {
+    val handle = state.home?.handle
+    Column(Modifier.fillMaxWidth().padding(horizontal = PageGutter)) {
+        d.banner?.let {
+            Thumbnail(it, Modifier.fillMaxWidth().aspectRatio(BannerAspect), radius = BannerRadius)
+            Spacer(Modifier.height(8.dp))
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            ChannelAvatar(d.avatar, d.name, size = ProfileSize)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f).height(ProfileSize.dp), verticalArrangement = Arrangement.SpaceEvenly) {
+                Text(
+                    d.name,
+                    style = MaterialTheme.typography.headlineMedium.copy(lineHeight = 24.sp),
+                    color = palette.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!handle.isNullOrBlank()) {
+                    Text(
+                        handle,
+                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 16.sp),
+                        color = palette.onBackgroundVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (d.subscribers > 0) {
+                    Text(
+                        subscribersLine(d.subscribers),
+                        style = MaterialTheme.typography.labelMedium.copy(lineHeight = 14.sp),
+                        color = palette.onBackgroundVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        state.subscribed?.let { subscribed ->
+            Spacer(Modifier.height(12.dp))
+            SubscribeRow(state, d, subscribed, onMessage)
+        }
+    }
+}
+
+/** Subscribe fills the width. The bell sits at the end once subscribed. */
+@Composable
+private fun SubscribeRow(state: ChannelState, d: ChannelDetails, subscribed: Boolean, onMessage: (String) -> Unit) {
+    val toggleBell = rememberBellToggle(onMessage)
+    val channel = BellChannel(d.id, d.name, d.avatar)
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(ArtistActionGap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SubscribeWord(subscribed, Modifier.weight(1f)) { state.toggleSubscribe(onMessage) }
+        if (subscribed) {
+            val bell = Bells.isOn(d.id)
+            ArtistCircle(
+                icon = if (bell) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsNone,
+                contentDescription = stringResource(if (bell) R.string.app_bell_on_description else R.string.app_bell_off_description),
+                onClick = { toggleBell(channel) },
+            )
+        }
+    }
+}
+
+/** The page colour over whatever scrolls under the status bar. Off until the list moves. */
+@Composable
+private fun ChannelTopFade(list: LazyListState, page: Color, modifier: Modifier = Modifier) {
+    val brush = remember(page) {
+        Brush.verticalGradient(
+            colorStops = Array(16) { i ->
+                val t = i / 15f
+                t to page.copy(alpha = androidx.compose.animation.core.EaseInCubic.transform(1f - t))
+            },
+        )
+    }
+    val alpha by remember(list) {
+        derivedStateOf {
+            if (list.firstVisibleItemIndex > 0) return@derivedStateOf 1f
+            val header = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == 0 }?.size?.toFloat() ?: return@derivedStateOf 0f
+            if (header <= 0f) return@derivedStateOf 0f
+            (list.firstVisibleItemScrollOffset / header).coerceIn(0f, 1f)
+        }
+    }
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .graphicsLayer { this.alpha = alpha }
+            .drawBehind { drawRect(brush) },
+    )
+}
+
+/** The bio, full width and left aligned under the Subscribe pill. */
+@Composable
+private fun ChannelAbout(d: ChannelDetails, palette: ArtworkPalette) {
+    if (d.description.isBlank()) return
+    Text(
+        d.description,
+        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+        color = palette.onBackgroundVariant,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter, vertical = 12.dp),
+    )
+}
+
+/** "Subscribe" / "Subscribed", in the artist page's glass pill. Words only. */
+@Composable
+private fun SubscribeWord(subscribed: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier
+            .height(ArtistSideButton)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = LightFillAlpha), CircleShape)
+            .liquidGlassRim(CircleShape)
+            .border(1.dp, Color.White.copy(alpha = CircleEdgeAlpha), CircleShape)
+            .pressable(onClick = onClick)
+            .padding(horizontal = 22.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = stringResource(if (subscribed) R.string.app_subscribed else R.string.app_subscribe),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * Small circular icon button — the artist page's side circles.
+ * A light veil, the glass rim, and a hairline edge. From BitChord's CircleIconButton.
+ */
+@Composable
+private fun ArtistCircle(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(ArtistSideButton)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = LightFillAlpha), CircleShape)
+            .liquidGlassRim(CircleShape)
+            .border(1.dp, Color.White.copy(alpha = CircleEdgeAlpha), CircleShape)
+            .pressable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(ArtistSideButton * 0.44f),
+        )
+    }
+}
+
+/** The tabs row's spacing: a little air above, the bar's room below. */
 private val TabsRowModifier = Modifier.padding(top = 10.dp, bottom = 6.dp)
 
 @Composable
@@ -400,44 +549,11 @@ private fun tabLabel(t: ChannelTab) = when (t) {
     ChannelTab.Playlists -> stringResource(R.string.ui_playlists)
 }
 
-@Composable
-private fun ChannelProfile(state: ChannelState, d: ChannelDetails, onMessage: (String) -> Unit) {
-    val c = MaterialTheme.colorScheme
-    Column(Modifier.padding(horizontal = 16.dp)) {
-        if (d.banner != null) {
-            Thumbnail(d.banner, Modifier.fillMaxWidth().aspectRatio(5.6f), radius = 22)
-            Spacer(Modifier.height(16.dp))
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ChannelAvatar(d.avatar, d.name, size = 76)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(d.name, fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (d.subscribers > 0) Text(subscribersLine(d.subscribers), color = c.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-        state.subscribed?.let { subscribed ->
-            Spacer(Modifier.height(14.dp))
-            SubscribeWithBell(
-                subscribed,
-                channel = BellChannel(d.id, d.name, d.avatar),
-                onSubscribe = { state.toggleSubscribe(onMessage) },
-                onMessage = onMessage,
-                modifier = Modifier.fillMaxWidth(),
-                wide = true,
-            )
-        }
-        if (d.description.isNotBlank()) {
-            Spacer(Modifier.height(12.dp))
-            Text(d.description, color = c.onSurfaceVariant, fontSize = 13.5.sp, lineHeight = 19.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
 /** Home: the featured video, then the creator's shelves, each a sideways row with See all. */
 private fun LazyListScope.homeTab(
     state: ChannelState,
     columns: Int,
+    palette: ArtworkPalette,
     onOpen: (VideoItem) -> Unit,
     onOpenShorts: (ShortsList) -> Unit,
     onOpenPlaylist: (PlaylistRef) -> Unit,
@@ -445,15 +561,15 @@ private fun LazyListScope.homeTab(
 ) {
     state.home?.featured?.let { videoCards(listOf(it), columns, onOpen) }
     state.shelves.forEachIndexed { i, shelf ->
-        item(key = "shelf-$i") { ShelfRow(shelf, onOpen, onOpenShorts, onOpenPlaylist, onLink) }
+        item(key = "shelf-$i") { ShelfRow(shelf, palette, onOpen, onOpenShorts, onOpenPlaylist, onLink) }
     }
 }
 
 /**
  * The list's end for a tab: a spinner while there's more, the error with Try again when nothing
  * loaded, or the tab's own empty note ([empty]). No keys (rule 8: a keyed trailing loader pins the list).
- * While the tab has nothing yet ([alone]) it takes the page's height, so a tab picked from the pinned
- * row can still sit right under it (a shorter list would scroll back to the profile).
+ * While the tab has nothing yet ([alone]) it takes the page's height, so switching to an empty
+ * tab does not pull the list back up to the profile.
  */
 private fun LazyListScope.feedTail(more: Boolean, error: String?, retry: () -> Unit, empty: Int?, alone: Boolean) {
     when {
@@ -479,8 +595,8 @@ private fun LazyListScope.feedTail(more: Boolean, error: String?, retry: () -> U
  * that scrolls, the chosen one full primary with rounder corners.
  */
 @Composable
-private fun SortChips(chips: List<FeedChip>, chosen: FeedChip?, onPick: (FeedChip) -> Unit) {
-    val c = MaterialTheme.colorScheme
+private fun SortChips(chips: List<FeedChip>, chosen: FeedChip?, palette: ArtworkPalette, onPick: (FeedChip) -> Unit) {
+    val onInk = if (palette.accent.luminance() > 0.5f) Color.Black else Color.White
     val reduced = rememberReducedMotion()
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 11.dp, end = 11.dp, top = 2.dp, bottom = 8.dp),
@@ -488,8 +604,8 @@ private fun SortChips(chips: List<FeedChip>, chosen: FeedChip?, onPick: (FeedChi
     ) {
         chips.forEach { chip ->
             val on = chosen?.title == chip.title || (chosen == null && chip.token == null)
-            val bg by animateColorAsState(if (on) c.primary else c.surfaceContainerHigh, tween(if (reduced) 0 else 220), label = "sortBg")
-            val fg by animateColorAsState(if (on) c.onPrimary else c.onSurfaceVariant, tween(if (reduced) 0 else 220), label = "sortFg")
+            val bg by animateColorAsState(if (on) palette.accent else palette.elevated, tween(if (reduced) 0 else 220), label = "sortBg")
+            val fg by animateColorAsState(if (on) onInk else palette.onBackgroundVariant, tween(if (reduced) 0 else 220), label = "sortFg")
             val corner by animateDpAsState(if (on) 18.dp else 10.dp, if (reduced) tween(0) else spring(dampingRatio = 0.55f, stiffness = 500f), label = "sortCorner")
             Box(
                 Modifier
@@ -500,7 +616,7 @@ private fun SortChips(chips: List<FeedChip>, chosen: FeedChip?, onPick: (FeedChi
                     .padding(horizontal = 15.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(sortLabel(chip.title), color = fg, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                Text(sortLabel(chip.title), color = fg, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
             }
         }
     }
@@ -529,34 +645,38 @@ private fun shelfTitle(english: String) = when (english.lowercase()) {
 @Composable
 private fun ShelfRow(
     shelf: ChannelShelf,
+    palette: ArtworkPalette,
     onOpen: (VideoItem) -> Unit,
     onOpenShorts: (ShortsList) -> Unit,
     onOpenPlaylist: (PlaylistRef) -> Unit,
     onLink: (ShelfLink) -> Unit,
 ) {
-    val c = MaterialTheme.colorScheme
-    Column(Modifier.padding(top = 4.dp, bottom = 10.dp)) {
-        Row(Modifier.fillMaxWidth().height(46.dp).padding(start = 18.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    val type = MaterialTheme.typography
+    Column(Modifier.padding(top = 10.dp, bottom = 8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 shelfTitle(shelf.title), Modifier.weight(1f),
-                fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, letterSpacing = (-0.4).sp,
+                style = type.headlineMedium, color = palette.onBackground,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             shelf.link?.let { link ->
-                Row(Modifier.pressable { onLink(link) }.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.ui_see_all), color = c.primary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = c.primary, modifier = Modifier.size(18.dp))
+                Row(Modifier.pressable { onLink(link) }.padding(start = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.ui_see_all), style = type.titleSmall, color = palette.accent)
+                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
                 }
             }
         }
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             when {
-                shelf.videos.isNotEmpty() -> items(shelf.videos, key = { it.id }) { v -> ShelfVideo(v) { onOpen(v) } }
+                shelf.videos.isNotEmpty() -> items(shelf.videos, key = { it.id }) { v -> ShelfVideo(v, palette) { onOpen(v) } }
                 shelf.shorts.isNotEmpty() -> itemsIndexed(shelf.shorts, key = { _, s -> s.id }) { i, s ->
                     ShortTile(s, Modifier.width(118.dp)) { onOpenShorts(ShortsList(shelf.shorts, i)) }
                 }
-                shelf.playlists.isNotEmpty() -> items(shelf.playlists, key = { it.id }) { p -> ShelfPlaylist(p) { onOpenPlaylist(p) } }
-                else -> items(shelf.channels, key = { it.id }) { ch -> ShelfChannel(ch) }
+                shelf.playlists.isNotEmpty() -> items(shelf.playlists, key = { it.id }) { p -> ShelfPlaylist(p, palette) { onOpenPlaylist(p) } }
+                else -> items(shelf.channels, key = { it.id }) { ch -> ShelfChannel(ch, palette) }
             }
         }
     }
@@ -564,8 +684,8 @@ private fun ShelfRow(
 
 /** A video in a shelf: a 200 dp card, thumbnail over two lines of title and views · age. */
 @Composable
-private fun ShelfVideo(video: VideoItem, onClick: () -> Unit) {
-    val c = MaterialTheme.colorScheme
+private fun ShelfVideo(video: VideoItem, palette: ArtworkPalette, onClick: () -> Unit) {
+    val type = MaterialTheme.typography
     val menu = LocalVideoMenu.current
     Column(
         Modifier
@@ -580,12 +700,12 @@ private fun ShelfVideo(video: VideoItem, onClick: () -> Unit) {
         }
         Text(
             video.title, Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp),
-            fontWeight = FontWeight.Bold, fontSize = 13.5.sp, lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            style = type.titleMedium, color = palette.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis,
         )
         val meta = metaLine("", video.views, video.uploaded)
         if (meta.isNotEmpty()) Text(
             meta, Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-            color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            style = type.bodyMedium, color = palette.onBackgroundVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -623,19 +743,23 @@ private fun PlaylistBadge(p: PlaylistRef, modifier: Modifier) {
 }
 
 @Composable
-private fun ShelfPlaylist(p: PlaylistRef, onClick: () -> Unit) {
+private fun ShelfPlaylist(p: PlaylistRef, palette: ArtworkPalette, onClick: () -> Unit) {
     Column(Modifier.width(ShelfCardWidth).pressable(pressedScale = 0.97f, onClick = onClick)) {
         Box {
             Thumbnail(p.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 16)
             PlaylistBadge(p, Modifier.align(Alignment.BottomEnd).padding(7.dp))
         }
-        Text(p.title, Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp), fontWeight = FontWeight.Bold, fontSize = 13.5.sp, lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            p.title, Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp),
+            style = MaterialTheme.typography.titleMedium, color = palette.onBackground,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
 /** The Playlists tab's row: thumbnail with the count, the playlist's name beside it. */
 @Composable
-private fun PlaylistRow(p: PlaylistRef, onClick: () -> Unit) {
+private fun PlaylistRow(p: PlaylistRef, palette: ArtworkPalette, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().pressable(pressedScale = 0.97f, onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -645,14 +769,17 @@ private fun PlaylistRow(p: PlaylistRef, onClick: () -> Unit) {
             PlaylistBadge(p, Modifier.align(Alignment.BottomEnd).padding(6.dp))
         }
         Spacer(Modifier.width(12.dp))
-        Text(p.title, Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 14.5.sp, lineHeight = 19.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Text(
+            p.title, Modifier.weight(1f),
+            style = MaterialTheme.typography.titleMedium, color = palette.onBackground,
+            maxLines = 3, overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
 /** A channel the creator features: its picture and name; a tap opens its page. */
 @Composable
-private fun ShelfChannel(ch: ChannelRef) {
-    val c = MaterialTheme.colorScheme
+private fun ShelfChannel(ch: ChannelRef, palette: ArtworkPalette) {
     val open = LocalChannelOpener.current
     Column(
         Modifier.width(76.dp).pressable { open("https://www.youtube.com/channel/${ch.id}") },
@@ -660,7 +787,13 @@ private fun ShelfChannel(ch: ChannelRef) {
     ) {
         ChannelAvatar(ch.avatar, ch.name, size = 64)
         Spacer(Modifier.height(6.dp))
-        Text(ch.name, fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = c.onSurfaceVariant, maxLines = 2, lineHeight = 14.sp, overflow = TextOverflow.Ellipsis)
+        Text(
+            ch.name,
+            style = MaterialTheme.typography.labelMedium,
+            color = palette.onBackgroundVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
