@@ -72,9 +72,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.snapshotFlow
@@ -542,11 +544,14 @@ class SearchState(private val scope: CoroutineScope) {
     val hasMore get() = next != null
     private var next: String? = null
     private var job: Job? = null
+    /** Bumped on each new search, so a cancelled page cannot write the error or the hits. */
+    private var request = 0
     private var suggestJob: Job? = null
     /** A pasted YouTube link, opened by the screen instead of searched. */
     var onLink: ((YoutubeTarget) -> Unit)? = null
 
     fun reset() {
+        request++
         job?.cancel()
         suggestJob?.cancel()
         query = ""
@@ -635,18 +640,18 @@ class SearchState(private val scope: CoroutineScope) {
         val token = next ?: return
         if (loading || submitted.isEmpty()) return
         loading = true
+        val ticket = request
         job?.cancel()
         val q = submitted
         val params = filter.toSearchParams()
         job = scope.launch {
             val result = runCatching { InnerTube.search(q, params, token) }
-            if (result.isSuccess) {
-                val page = result.getOrThrow()
-                val seen = hits.mapTo(HashSet()) { it.key() }
-                hits = hits + page.hits.filter { seen.add(it.key()) }
-                next = page.next
-            } else error = YouTube.friendlyError(result.exceptionOrNull()!!)
-            loading = false
+            if (!applySearch(ticket, result) { page ->
+                    val seen = hits.mapTo(HashSet()) { it.key() }
+                    hits = hits + page.hits.filter { seen.add(it.key()) }
+                    next = page.next
+                }
+            ) return@launch
         }
     }
 
@@ -660,6 +665,7 @@ class SearchState(private val scope: CoroutineScope) {
         submitted = q
         submittedAt = android.os.SystemClock.elapsedRealtime()
         typing = false
+        val ticket = ++request
         loading = true
         error = null
         if (hits.isNotEmpty()) generation++
@@ -668,11 +674,32 @@ class SearchState(private val scope: CoroutineScope) {
         job?.cancel()
         val params = filter.toSearchParams()
         job = scope.launch {
-            runCatching { InnerTube.search(q, params, null) }
-                .onSuccess { hits = it.hits; next = it.next }
-                .onFailure { error = YouTube.friendlyError(it) }
-            loading = false
+            val result = runCatching { InnerTube.search(q, params, null) }
+            if (!applySearch(ticket, result) { page ->
+                    hits = page.hits
+                    next = page.next
+                    error = null
+                }
+            ) return@launch
         }
+    }
+
+    /**
+     * Writes a finished page only when it still belongs to the search on screen.
+     * A cancelled call used to be caught and shown as "Search didn't load", then the newer page replaced it.
+     * Returns false when this coroutine should stop without touching [loading].
+     */
+    private suspend fun CoroutineScope.applySearch(
+        ticket: Int,
+        result: Result<SearchPage>,
+        onPage: (SearchPage) -> Unit,
+    ): Boolean {
+        result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+        if (ticket != request) return false
+        ensureActive()
+        result.onSuccess(onPage).onFailure { error = YouTube.friendlyError(it) }
+        loading = false
+        return true
     }
 }
 

@@ -14,6 +14,7 @@ import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
@@ -39,6 +40,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.NorthWest
@@ -58,7 +60,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.graphics.BlurEffect
@@ -70,11 +74,13 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.yuno.floatingtabbar.FloatingTabBarScrollConnection
 import com.yuno.backdrop.backdrops.SnapshotBackdrop
 import com.yuno.icons.SfIcons
@@ -131,6 +137,7 @@ fun SearchScreen(
         label = "searchChipInset",
     )
     val inset = PaddingValues(top = topInset, bottom = contentPadding.calculateBottomPadding())
+    val pending = shown.isEmpty() && state.loading
     Box(
         Modifier
             .fillMaxSize()
@@ -149,17 +156,18 @@ fun SearchScreen(
                 },
                 onFill = state::updateQuery,
             )
-            state.error != null && shown.isEmpty() -> EmptyState(
+            // Loading wins over the error. A cancelled page used to set the error while the next page was still coming.
+            !pending && state.error != null && shown.isEmpty() -> EmptyState(
                 icon = SfIcons.CloudOff,
                 title = stringResource(R.string.ui_search_error_title),
                 body = state.error.orEmpty(),
                 action = { PillButton(stringResource(R.string.ui_try_again), state::submit) },
             )
             state.submitted.isEmpty() -> EmptyLine(stringResource(R.string.ui_search_intro_body))
-            shown.isEmpty() && !state.loading -> EmptyLine(stringResource(R.string.ui_search_no_match, state.submitted))
+            shown.isEmpty() && !pending -> EmptyLine(stringResource(R.string.ui_search_no_match, state.submitted))
             state.filter.contentType == ContentType.SHORTS -> SearchShorts(
                 videos = shown.filterIsInstance<SearchHit.Video>().map { it.item },
-                loading = state.loading && shown.isEmpty(),
+                loading = pending,
                 contentPadding = inset,
                 onOpen = onOpenShorts,
                 onMore = state::loadMore,
@@ -167,7 +175,7 @@ fun SearchScreen(
             )
             else -> SearchResults(
                 hits = shown,
-                loading = state.loading && shown.isEmpty(),
+                loading = pending,
                 contentPadding = inset,
                 scrollToTop = scrollToTop,
                 generation = state.generation,
@@ -454,7 +462,7 @@ private fun SearchResults(
                     VideoCard(hit.item, onClick = { onOpenShorts(ShortsList(listOf(hit.item), 0)) })
                 } else VideoCard(hit.item, onClick = { onOpen(hit.item) })
                 is SearchHit.Channel -> SearchChannelRow(hit) { onOpenChannel("https://www.youtube.com/channel/${hit.ref.id}") }
-                is SearchHit.Playlist -> SearchPlaylistRow(hit.ref) { onOpenPlaylist(hit.ref) }
+                is SearchHit.Playlist -> SearchPlaylistCard(hit.ref) { onOpenPlaylist(hit.ref) }
             }
         }
         if (hasMore && hits.isNotEmpty()) item { FeedSkeletons(1) }
@@ -498,32 +506,86 @@ private fun SearchShorts(
     }
 }
 
+/**
+ * A channel in the results. The 12dp above the picture matches the 12dp below it,
+ * the same inset as the channel line on a video card, and the row fills the width.
+ */
 @Composable
 private fun SearchChannelRow(hit: SearchHit.Channel, onClick: () -> Unit) {
+    val c = MaterialTheme.colorScheme
     Row(
-        Modifier.fillMaxWidth().pressable(onClick = onClick).padding(horizontal = PageGutter, vertical = 10.dp),
+        Modifier
+            .fillMaxWidth()
+            .pressable(
+                pressedScale = 0.97f,
+                lift = true,
+                liftPadding = PaddingValues(horizontal = PageGutter),
+                onClick = onClick,
+            )
+            .padding(horizontal = PageGutter, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ChannelAvatar(hit.ref.avatar, hit.ref.name)
+        ChannelAvatar(hit.ref.avatar, hit.ref.name, size = 56)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(hit.ref.name, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            hit.meta?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
+            FadingTitle(
+                text = hit.ref.name,
+                style = TextStyle(fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 20.sp),
+                maxLines = 1,
+            )
+            hit.meta?.let {
+                Spacer(Modifier.height(1.dp))
+                Text(it, color = c.onSurfaceVariant, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+/** A playlist in the results, as the grid card: the thumbnail, then the title under it. */
+@Composable
+private fun SearchPlaylistCard(playlist: PlaylistRef, onClick: () -> Unit) {
+    val c = MaterialTheme.colorScheme
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 16.dp)
+            .pressable(
+                pressedScale = 0.97f,
+                lift = true,
+                liftPadding = PaddingValues(horizontal = PageGutter),
+                onClick = onClick,
+            ),
+    ) {
+        Box(Modifier.padding(horizontal = PageGutter).clip(RoundedCornerShape(FeedVideoThumbRadius.dp))) {
+            Thumbnail(playlist.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = FeedVideoThumbRadius)
+            SearchPlaylistBadge(playlist, Modifier.align(Alignment.BottomEnd).padding(5.dp))
+        }
+        Column(Modifier.fillMaxWidth().padding(horizontal = PageGutter, vertical = 12.dp)) {
+            FadingTitle(
+                text = playlist.title,
+                style = TextStyle(fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 20.sp),
+            )
+            playlist.subtitle?.let {
+                Spacer(Modifier.height(1.dp))
+                Text(it, color = c.onSurfaceVariant, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
 
 @Composable
-private fun SearchPlaylistRow(playlist: PlaylistRef, onClick: () -> Unit) {
+private fun SearchPlaylistBadge(playlist: PlaylistRef, modifier: Modifier) {
+    val count = playlist.subtitle
+        ?.takeIf { it.contains("video", ignoreCase = true) }
+        ?.let { Regex("\\d[\\d,]*").find(it)?.value?.replace(",", "") }
     Row(
-        Modifier.fillMaxWidth().pressable(onClick = onClick).padding(horizontal = PageGutter, vertical = 8.dp),
+        modifier.clip(CircleShape).background(Color.Black.copy(alpha = 0.72f)).padding(start = 6.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Thumbnail(playlist.thumbnail, Modifier.width(142.dp).aspectRatio(16f / 9f), radius = 12)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(playlist.title, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            playlist.subtitle?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
+        Icon(SfIcons.PlaylistPlay, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+        count?.let {
+            Spacer(Modifier.width(3.dp))
+            Text(it, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

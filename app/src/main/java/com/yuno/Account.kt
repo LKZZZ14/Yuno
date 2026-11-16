@@ -647,9 +647,13 @@ object InnerTube {
     private fun addSearchChannel(hits: MutableList<SearchHit>, seen: MutableSet<String>, obj: JSONObject) {
         val id = obj.optString("channelId").takeIf { it.startsWith("UC") } ?: return
         if (!seen.add("c:$id")) return
+        val handle = obj.text("shortBylineText")?.takeIf { it.startsWith("@") }
+        val meta = listOfNotNull(handle, obj.text("subscriberCountText"), obj.text("videoCountText"))
+            .joinToString(" · ")
+            .ifBlank { null }
         hits += SearchHit.Channel(
             ChannelRef(id, obj.text("title") ?: "", obj.thumbnails()?.lastOrNull()?.let(::absoluteUrl)),
-            obj.text("subscriberCountText") ?: obj.text("videoCountText"),
+            meta,
         )
     }
 
