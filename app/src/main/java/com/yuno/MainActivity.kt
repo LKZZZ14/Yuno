@@ -195,6 +195,11 @@ fun YunoApp() {
     val player = rememberPlayerState()
     val scope = rememberCoroutineScope()
     val search = remember { SearchState(scope) }
+    // The mini player's scroll: down folds the search chips into the bar, up brings them back.
+    val searchChipScroll = rememberFloatingTabBarScrollConnection()
+    LaunchedEffect(search.showingResults) {
+        if (!search.showingResults) searchChipScroll.expand()
+    }
     val appContext = LocalContext.current.applicationContext
     val lib = remember { LibraryData(scope, appContext) }
     LaunchedEffect(Account.signedIn) { if (Account.signedIn) lib.warmUp() }
@@ -372,7 +377,7 @@ fun YunoApp() {
     val goBack: () -> Unit = {
         when (val route = navigator.visibleRoute()) {
             AppRoute.Settings -> if (settingsQuery.isNotEmpty()) settingsQuery = "" else navigator.pop()
-            AppRoute.Search -> if (search.returnToResults()) Unit else navigator.pop()
+            AppRoute.Search -> if (search.swallowBack() || search.returnToResults()) Unit else navigator.pop()
             is AppRoute.Channel -> {
                 val channel = channelStates[route.url]
                 if (channel?.searchOpen == true) channel.closeSearch() else navigator.pop()
@@ -543,6 +548,7 @@ fun YunoApp() {
                     AppRoute.Search -> SearchScreen(
                         search,
                         contentPadding,
+                        chipScroll = searchChipScroll,
                         onOpen = player::open,
                         onOpenChannel = ::showChannel,
                         onOpenPlaylist = { navigator.push(AppRoute.Playlist(it)) },
@@ -619,10 +625,14 @@ fun YunoApp() {
                             filter = search.filter,
                             shortsEnabled = ShortsSetting.enabled,
                             onFilterChange = search::updateFilter,
-                            modifier = Modifier.padding(top = 6.dp),
+                            onExpand = { searchChipScroll.expand() },
+                            modifier = Modifier,
                         )
                     }
                 },
+                collapseFooter = route is AppRoute.Search,
+                chipFooter = search.showingResults,
+                footerCollapsed = searchChipScroll.isInline,
             ) {
                 if (channelLayout) LayoutAction(channel!!.gridView) { channel.toggleGrid() }
                 if (route is AppRoute.Search && search.showingResults) {

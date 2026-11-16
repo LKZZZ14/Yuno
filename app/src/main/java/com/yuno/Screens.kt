@@ -533,6 +533,8 @@ class SearchState(private val scope: CoroutineScope) {
     /** Typing over a finished search. Back returns to those results before leaving the page. */
     var typing by mutableStateOf(true)
         private set
+    /** Hiding the keyboard on submit delivers a back, and a rebuilt field refocuses. Both would leave the page. */
+    private var submittedAt = 0L
     var filtersOpen by mutableStateOf(false)
     /** The field in the top bar has focus. The page reads it; the bar writes it. */
     var fieldFocused by mutableStateOf(false)
@@ -560,7 +562,13 @@ class SearchState(private val scope: CoroutineScope) {
         filtersOpen = false
     }
 
-    fun startTyping() { typing = true }
+    fun startTyping() {
+        if (android.os.SystemClock.elapsedRealtime() - submittedAt < 500) return
+        typing = true
+    }
+
+    /** True for the moment after submit, while the keyboard's back is still arriving. */
+    fun swallowBack(): Boolean = android.os.SystemClock.elapsedRealtime() - submittedAt < 500
 
     /** Back to the search already on screen. The field returns to what was submitted. */
     fun stopTyping() {
@@ -650,6 +658,7 @@ class SearchState(private val scope: CoroutineScope) {
         suggestionsLoading = false
         if (record) SearchHistory.add(q)
         submitted = q
+        submittedAt = android.os.SystemClock.elapsedRealtime()
         typing = false
         loading = true
         error = null
@@ -688,7 +697,7 @@ fun SearchTopAccessory(state: SearchState) {
             keyboard?.show()
         }
     }
-    LaunchedEffect(Unit) { showSearchKeyboard() }
+    LaunchedEffect(Unit) { if (!state.showingResults) showSearchKeyboard() }
     DisposableEffect(state) { onDispose { state.fieldFocused = false } }
     SearchBarField(
         query = state.query,

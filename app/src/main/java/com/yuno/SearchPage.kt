@@ -1,6 +1,22 @@
 package com.yuno
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -48,8 +64,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -60,6 +80,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.yuno.floatingtabbar.FloatingTabBarScrollConnection
 import com.yuno.icons.SfIcons
 
 /** Newest history rows drawn before "Show all". From Flow's `SEARCH_HISTORY_LIMIT`. */
@@ -77,6 +98,7 @@ fun SearchScreen(
     onOpenChannel: (String) -> Unit,
     onOpenPlaylist: (PlaylistRef) -> Unit,
     onOpenShorts: (ShortsList) -> Unit,
+    chipScroll: FloatingTabBarScrollConnection,
     scrollToTop: Int = 0,
 ) {
     val focus = LocalFocusManager.current
@@ -105,9 +127,19 @@ fun SearchScreen(
     val shown = remember(state.hits, state.filter.watchState, watched) {
         state.hits.watchFiltered(state.filter.watchState, watched)
     }
-    val topInset = if (state.showingResults) underChips else underBar
+    // Same spring as the chip fold, so the first result moves up with the row.
+    val topInset by animateDpAsState(
+        if (state.showingResults && !chipScroll.isInline) underChips else underBar,
+        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "searchChipInset",
+    )
     val inset = PaddingValues(top = topInset, bottom = contentPadding.calculateBottomPadding())
-    Box(Modifier.fillMaxSize().overlayTouchBlock()) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .overlayTouchBlock()
+            .then(if (state.showingResults) Modifier.nestedScroll(chipScroll) else Modifier),
+    ) {
         when {
             !state.showingResults -> SearchSuggestions(
                 query = state.query,
@@ -285,39 +317,93 @@ internal fun SearchFilterBar(
     filter: SearchFilter,
     shortsEnabled: Boolean,
     onFilterChange: (SearchFilter) -> Unit,
+    onExpand: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val types = remember(shortsEnabled) { ChipOrder.filterNot { it == ContentType.SHORTS && !shortsEnabled } }
     val videoFilters = filter.contentType.supportsVideoFilters()
-    androidx.compose.foundation.lazy.LazyRow(
-        modifier = modifier.fillMaxWidth(),
+    val compact = LocalSearchChipsCompact.current
+    val scroll = rememberScrollState()
+    Row(
+        (if (compact) modifier else modifier.fillMaxWidth().horizontalScroll(scroll))
+            .padding(horizontal = if (compact) 0.dp else PageGutter),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(horizontal = PageGutter),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        items(types, key = { it.name }) { type ->
-            SearchChromeChip(stringResource(type.label()), filter.contentType == type) { onFilterChange(filter.copy(contentType = type)) }
+        types.forEach { type ->
+            val selected = filter.contentType == type
+            // The folded bar keeps this one chip. A second selected filter leaves with the rest.
+            FilterChipSlot(keep = selected, compact = compact) {
+                SearchChromeChip(stringResource(type.label()), selected, onExpand, matchButtons = selected) {
+                    onFilterChange(filter.copy(contentType = type))
+                }
+            }
         }
         if (videoFilters) {
-            item(key = "recent") {
-                val recent = filter.uploadDate == UploadDate.THIS_WEEK
-                SearchChromeChip(stringResource(R.string.ui_search_recent), recent) {
+            val recent = filter.uploadDate == UploadDate.THIS_WEEK
+            FilterChipSlot(keep = false, compact = compact) {
+                SearchChromeChip(stringResource(R.string.ui_search_recent), recent, onExpand) {
                     onFilterChange(filter.copy(uploadDate = if (recent) UploadDate.ANY else UploadDate.THIS_WEEK))
                 }
             }
-            item(key = "unwatched") {
-                val on = filter.watchState == WatchState.UNWATCHED
-                SearchChromeChip(stringResource(R.string.ui_search_unwatched), on) {
-                    onFilterChange(filter.copy(watchState = if (on) WatchState.ANY else WatchState.UNWATCHED))
+            val unwatched = filter.watchState == WatchState.UNWATCHED
+            FilterChipSlot(keep = false, compact = compact) {
+                SearchChromeChip(stringResource(R.string.ui_search_unwatched), unwatched, onExpand) {
+                    onFilterChange(filter.copy(watchState = if (unwatched) WatchState.ANY else WatchState.UNWATCHED))
                 }
             }
-            item(key = "watched") {
-                val on = filter.watchState == WatchState.WATCHED
-                SearchChromeChip(stringResource(R.string.ui_search_watched), on) {
-                    onFilterChange(filter.copy(watchState = if (on) WatchState.ANY else WatchState.WATCHED))
+            val watched = filter.watchState == WatchState.WATCHED
+            FilterChipSlot(keep = false, compact = compact) {
+                SearchChromeChip(stringResource(R.string.ui_search_watched), watched, onExpand) {
+                    onFilterChange(filter.copy(watchState = if (watched) WatchState.ANY else WatchState.WATCHED))
                 }
             }
         }
+    }
+}
+
+/**
+ * Unselected chips leave the way a nav tab does: 150ms fade and a 12dp blur.
+ * The selected chip stays. Glass is not put in a shared-element overlay.
+ */
+@Composable
+private fun FilterChipSlot(
+    keep: Boolean,
+    compact: Boolean,
+    content: @Composable () -> Unit,
+) {
+    // One chip stays in the bar. Everything else, selected or not, leaves.
+    if (keep) {
+        content()
+        return
+    }
+    val reduced = rememberReducedMotion()
+    val motion = if (reduced) snap() else tween<Float>(150, easing = FastOutSlowInEasing)
+    val sizeMotion = if (reduced) snap() else tween<androidx.compose.ui.unit.IntSize>(150, easing = FastOutSlowInEasing)
+    AnimatedVisibility(
+        visible = !compact,
+        enter = fadeIn(motion) + expandHorizontally(sizeMotion),
+        exit = fadeOut(motion) + shrinkHorizontally(sizeMotion),
+    ) {
+        val blurPx = with(LocalDensity.current) { 12.dp.toPx() }
+        val blur by transition.animateFloat(
+            transitionSpec = {
+                keyframes {
+                    durationMillis = 150
+                    if (targetState == EnterExitState.Visible) {
+                        blurPx atFraction 0.5f using FastOutSlowInEasing
+                        0f atFraction 0.8f
+                    }
+                }
+            },
+        ) { state ->
+            if (state == EnterExitState.Visible) 0f else blurPx
+        }
+        Box(
+            Modifier.graphicsLayer {
+                renderEffect = if (blur > 0f) BlurEffect(blur, blur) else null
+            },
+        ) { content() }
     }
 }
 
@@ -326,14 +412,27 @@ internal fun SearchFilterBar(
  * Drawn from the top chrome. Glass inside the page recording has nothing behind it to sample.
  */
 @Composable
-private fun SearchChromeChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun SearchChromeChip(
+    label: String,
+    selected: Boolean,
+    onExpand: () -> Unit,
+    matchButtons: Boolean = false,
+    onClick: () -> Unit,
+) {
     val glass = LocalLiquidGlassEnabled.current && isGlassSupported()
     val ink = if (glass) glassContentColor() else MaterialTheme.colorScheme.onSurface
+    val compact = LocalSearchChipsCompact.current
+    // The chip that stays in the bar grows to the back button and the field. The row under the bar stays 40dp.
+    val height by animateDpAsState(
+        if (compact && matchButtons) TopControl else 40.dp,
+        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "searchChipHeight",
+    )
     Row(
         Modifier
-            .height(40.dp)
+            .height(height)
             .floatingChrome(CircleShape)
-            .pressable(onClick = onClick)
+            .pressable(onClick = { if (compact) onExpand() else onClick() })
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),

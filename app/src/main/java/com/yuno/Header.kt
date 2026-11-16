@@ -4,6 +4,8 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInCubic
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -47,6 +49,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -59,6 +62,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -202,7 +207,7 @@ fun pageBodyTop(): Dp = pageContentTop() + LargePageTitleBlockHeight + LargePage
 private val LargePageTitleBlockHeight = 8.dp + 41.dp + 8.dp
 
 /** Floating controls — the back circle and each action slot. Apple's 44pt. */
-private val TopControl = 44.dp
+internal val TopControl = 44.dp
 
 /** Between two actions in the pill, measured off Apple Music's share-and-more pill. */
 private val ActionGap = 10.dp
@@ -329,6 +334,9 @@ internal class TopChromeEntry {
 }
 
 internal val LocalTopChrome = staticCompositionLocalOf<TopChromeHost?> { null }
+
+/** True while the search chips are folded into the bar, so the row drops its side inset. */
+internal val LocalSearchChipsCompact = staticCompositionLocalOf { false }
 private val LocalTopChromeDrawing = staticCompositionLocalOf { false }
 
 @Composable
@@ -363,6 +371,11 @@ fun PageTopBar(
     beside: @Composable () -> Unit = {},
     // Drawn under the bar, in the same chrome layer, so it can use the bar's glass.
     footer: @Composable () -> Unit = {},
+    // The search chips. Scroll folds them into the bar with the mini player's morph.
+    // The fold stays up for the whole search visit, so the field is not rebuilt when results arrive.
+    collapseFooter: Boolean = false,
+    chipFooter: Boolean = false,
+    footerCollapsed: Boolean = false,
     actions: @Composable () -> Unit = {},
 ) {
     val glass = LocalLiquidGlassEnabled.current && isGlassSupported()
@@ -384,7 +397,13 @@ fun PageTopBar(
                 }
             }
             SideEffect {
-                entry.content = { PageTopBar(onBack, accessory, pull = pullState, beside = beside, footer = footer, actions = actions) }
+                entry.content = {
+                    PageTopBar(
+                        onBack, accessory, pull = pullState, beside = beside, footer = footer,
+                        collapseFooter = collapseFooter, chipFooter = chipFooter,
+                        footerCollapsed = footerCollapsed, actions = actions,
+                    )
+                }
                 host.tick++
             }
         }
@@ -393,12 +412,26 @@ fun PageTopBar(
     if (!shown) return
     val iconTint = if (glass) glassContentColor() else MaterialTheme.colorScheme.onSurface
     val extra = (pull ?: LocalBarPullRefresh.current)?.extraPadding() ?: 0.dp
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .then(if (extra > 0.dp) Modifier.padding(top = extra) else Modifier),
-    ) {
+    val chromeMod = Modifier
+        .fillMaxWidth()
+        .statusBarsPadding()
+        .then(if (extra > 0.dp) Modifier.padding(top = extra) else Modifier)
+    if (collapseFooter) {
+        SearchChipFold(
+            collapsed = footerCollapsed && chipFooter,
+            hasChips = chipFooter,
+            onBack = onBack,
+            accessory = accessory,
+            beside = beside,
+            footer = footer,
+            actions = actions,
+            iconTint = iconTint,
+            extra = extra,
+            modifier = chromeMod,
+        )
+        return
+    }
+    Column(chromeMod) {
     Box(
         Modifier
             .fillMaxWidth()
@@ -446,6 +479,104 @@ fun PageTopBar(
         }
     }
         footer()
+    }
+}
+
+/**
+ * The search chips, folded the way the mini player folds into the nav.
+ * Scroll down and the row under the field moves into a slot on the field's right;
+ * scroll up and it comes back. Same spring as that fold. The glass stays in the
+ * chrome layout: a shared-element overlay nests its render node and the process dies.
+ */
+@Composable
+private fun SearchChipFold(
+    collapsed: Boolean,
+    hasChips: Boolean,
+    onBack: (() -> Unit)?,
+    accessory: (@Composable () -> Unit)?,
+    beside: @Composable () -> Unit,
+    footer: @Composable () -> Unit,
+    actions: @Composable () -> Unit,
+    iconTint: Color,
+    extra: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val reduced = rememberReducedMotion()
+    val fold by animateFloatAsState(
+        if (collapsed) 1f else 0f,
+        if (reduced) snap() else spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "searchChipFold",
+    )
+    Layout(
+        modifier = modifier.then(if (extra > 0.dp) Modifier.padding(bottom = extra) else Modifier),
+        content = {
+            Box(Modifier.size(if (onBack != null) TopControl else 0.dp), contentAlignment = Alignment.Center) {
+                if (onBack != null) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .floatingChrome(CircleShape)
+                            .pressable(onClick = onBack),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(SfIcons.ArrowBack, contentDescription = "Back", tint = iconTint)
+                    }
+                }
+            }
+            Box {
+                if (accessory != null) {
+                    Box(Modifier.fillMaxSize().floatingChrome(RoundedCornerShape(percent = 50))) { accessory() }
+                }
+            }
+            Box(Modifier.clipToBounds()) {
+                CompositionLocalProvider(LocalSearchChipsCompact provides collapsed) { footer() }
+            }
+            Box { beside() }
+            Box { PageActions(content = actions) }
+        },
+    ) { measurables, constraints ->
+        val barH = TopBarContentHeight.roundToPx()
+        val gap = 6.dp.roundToPx()
+        val slotGap = AccessoryGap.roundToPx()
+        val gutter = PageGutter.roundToPx()
+        val control = TopControl.roundToPx()
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val back = measurables[0].measure(loose)
+        val besideP = measurables[3].measure(loose)
+        val actionsP = measurables[4].measure(loose)
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
+        val leading = if (onBack != null) gutter + control + slotGap else gutter
+        val rowEnd = (width - gutter).coerceAtLeast(leading)
+        val besideGap = if (besideP.width > 0) slotGap else 0
+        val available = (rowEnd - leading - actionsP.width - besideP.width - besideGap - slotGap).coerceAtLeast(0)
+        val travel = if (hasChips) fold else 0f
+        // The field keeps most of the bar. The chip only gets the room to its right.
+        val fieldFloor = (available * 0.55f).toInt().coerceAtMost(available)
+        val chipCap = (available - fieldFloor - slotGap).coerceAtLeast(0)
+        val chipMax = if (hasChips) lerp(width, chipCap, travel).coerceAtLeast(0) else 0
+        val chips = measurables[2].measure(
+            Constraints(
+                minWidth = if (hasChips && travel == 0f) chipMax else 0,
+                maxWidth = chipMax,
+                minHeight = 0,
+                // Tall enough for the folded chip, which grows to the buttons' height.
+                maxHeight = if (hasChips) control else 0,
+            ),
+        )
+        val settledField = (available - chips.width - slotGap).coerceAtLeast(fieldFloor)
+        val fieldW = if (!hasChips) available else lerp(available, settledField, travel)
+        val field = measurables[1].measure(Constraints.fixed(fieldW, control))
+        val height = barH + if (hasChips) lerp(gap + chips.height, 0, travel) else 0
+        layout(width, height) {
+            val chipX = lerp(0, leading + fieldW + slotGap, travel)
+            val chipY = lerp(barH + gap, (barH - chips.height) / 2, travel)
+            chips.place(chipX, chipY)
+            back.place(gutter, (barH - back.height) / 2, zIndex = 1f)
+            field.place(leading, (barH - field.height) / 2, zIndex = 1f)
+            val actionsX = rowEnd - actionsP.width
+            actionsP.place(actionsX, (barH - actionsP.height) / 2, zIndex = 1f)
+            if (besideP.width > 0) besideP.place(actionsX - slotGap - besideP.width, (barH - besideP.height) / 2, zIndex = 1f)
+        }
     }
 }
 
