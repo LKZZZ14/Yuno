@@ -64,7 +64,9 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.drawBehind
@@ -89,6 +91,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.yuno.icons.YunoIcons
 import com.yuno.icons.SfIcons
@@ -197,6 +200,7 @@ fun YunoApp() {
     val player = rememberPlayerState()
     val scope = rememberCoroutineScope()
     val search = remember { SearchState(scope) }
+    var searchFilterAnchor by remember { mutableStateOf(Rect.Zero) }
     // The mini player's scroll: down folds the search chips into the bar, up brings them back.
     val searchChipScroll = rememberFloatingTabBarScrollConnection()
     LaunchedEffect(search.showingResults) {
@@ -641,7 +645,11 @@ fun YunoApp() {
             ) {
                 if (channelLayout) LayoutAction(channel!!.gridView) { channel.toggleGrid() }
                 if (route is AppRoute.Search && search.showingResults) {
-                    SearchFilterAction(search.filter.activeCount > 0) { search.filtersOpen = true }
+                    SearchFilterAction(
+                        search.filter.activeCount > 0,
+                        onClick = { search.filtersOpen = true },
+                        modifier = Modifier.onGloballyPositioned { searchFilterAnchor = it.boundsInWindow() },
+                    )
                 }
                 if (route is AppRoute.Playlist) {
                     val grid = playlistGrid[route.ref.id] != false
@@ -838,7 +846,26 @@ fun YunoApp() {
                 }
             }
         }
+        val menuUp = LocalSortMenu.current?.request != null ||
+            (navigator.visibleRoute() is AppRoute.Search && search.filtersOpen)
+        LaunchedEffect(menuUp) {
+            if (menuUp && isGlassSupported()) sortBackdrop.capture()
+            else {
+                delay(400)
+                sortBackdrop.release()
+            }
+        }
         ChannelSortMenuOverlay(hazeState, sortBackdrop)
+        SearchFilterMenu(
+            open = navigator.visibleRoute() is AppRoute.Search && search.filtersOpen,
+            anchor = searchFilterAnchor,
+            filter = search.filter,
+            shortsEnabled = ShortsSetting.enabled,
+            onChange = search::updateFilter,
+            onDismiss = { search.filtersOpen = false },
+            haze = hazeState,
+            backdrop = sortBackdrop,
+        )
         VideoHeldMenu(
             video = optionsFor.takeIf { !showNowPlaying },
             held = optionsHeld,

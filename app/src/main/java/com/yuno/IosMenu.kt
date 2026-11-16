@@ -267,9 +267,10 @@ fun Modifier.additiveChrome(enabled: Boolean): Modifier =
 fun IosMenuRow(
     label: String,
     icon: ImageVector?,
-    onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    value: String? = null,
     enabled: Boolean = true,
+    onClick: (() -> Unit)? = null,
 ) {
     val colors = iosMenuColors()
     val interaction = remember { MutableInteractionSource() }
@@ -321,6 +322,16 @@ fun IosMenuRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (value != null) {
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = value,
+                color = colors.secondaryLabel.copy(alpha = colors.secondaryLabel.alpha * alpha),
+                fontSize = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -340,8 +351,10 @@ fun <T : Any> IosMenuPopover(
     onDismiss: () -> Unit,
     backdrop: SnapshotBackdrop? = null,
     hazeState: HazeState? = null,
-    /** Sit under the button and grow from that top-left corner. */
+    /** Sit under the button. The corner it grows from is the one lined up with the button. */
     dropBelow: Boolean = false,
+    /** Line the panel's trailing edge up with the button and grow from the top right. */
+    alignEnd: Boolean = false,
     content: @Composable (T) -> Unit,
 ) {
     var last by remember { mutableStateOf<Pair<T, Rect?>?>(null) }
@@ -458,7 +471,7 @@ fun <T : Any> IosMenuPopover(
         val hangsDown = anchorBounds != null && anchorBounds.center.y < height / 2f
         val gap = 6.dp.roundToPx()
         val maxX = (width - margin - panel.width).coerceAtLeast(margin)
-        val panelX = if (dropBelow && anchorBounds != null) {
+        val panelX = if (dropBelow && anchorBounds != null && !alignEnd) {
             anchorBounds.left.roundToInt().coerceIn(margin, maxX)
         } else {
             (right - panel.width).coerceIn(margin, maxX)
@@ -475,10 +488,10 @@ fun <T : Any> IosMenuPopover(
             val p = progress.value
             alpha = (p * 2.5f).coerceIn(0f, 1f)
             if (!reduceMotion) {
-                transformOrigin = if (dropBelow) {
+                transformOrigin = if (dropBelow && !alignEnd) {
                     TransformOrigin(0f, 0f)
                 } else {
-                    TransformOrigin(1f, if (hangsDown) 0f else 1f)
+                    TransformOrigin(1f, if (dropBelow || hangsDown) 0f else 1f)
                 }
                 val scale = lerp(0.3f, 1f, p)
                 scaleX = scale

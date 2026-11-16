@@ -79,7 +79,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.yuno.backdrop.backdrops.SnapshotBackdrop
 import dev.chrisbanes.haze.HazeState
-import kotlinx.coroutines.delay
 
 /** Latest / Popular / Oldest are one menu. Everything else (Members only, Public, …) is a chip. */
 private val SortTitles = setOf("latest", "popular", "oldest")
@@ -313,14 +312,6 @@ private fun SortChip(
 internal fun ChannelSortMenuOverlay(haze: HazeState, backdrop: SnapshotBackdrop) {
     val host = LocalSortMenu.current ?: return
     val request = host.request
-    // The still the panel blurs, taken as the menu opens and let go once it has played out.
-    LaunchedEffect(request != null) {
-        if (request != null && isGlassSupported()) backdrop.capture()
-        else {
-            delay(400)
-            backdrop.release()
-        }
-    }
     IosMenuPopover(
         item = request,
         anchor = request?.anchor,

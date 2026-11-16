@@ -17,10 +17,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,11 +43,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.NorthWest
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -64,6 +58,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.graphics.BlurEffect
@@ -81,7 +76,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.yuno.floatingtabbar.FloatingTabBarScrollConnection
+import com.yuno.backdrop.backdrops.SnapshotBackdrop
 import com.yuno.icons.SfIcons
+import dev.chrisbanes.haze.HazeState
 
 /** Newest history rows drawn before "Show all". From Flow's `SEARCH_HISTORY_LIMIT`. */
 private const val HistoryShown = 8
@@ -182,17 +179,6 @@ fun SearchScreen(
                 hasMore = state.hasMore,
             )
         }
-    }
-    if (state.filtersOpen) {
-        SearchFilterDialog(
-            filter = state.filter,
-            shortsEnabled = ShortsSetting.enabled,
-            onApply = {
-                state.filtersOpen = false
-                state.updateFilter(it)
-            },
-            onDismiss = { state.filtersOpen = false },
-        )
     }
 }
 
@@ -443,18 +429,6 @@ private fun SearchChromeChip(
 }
 
 @Composable
-private fun SearchChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        leadingIcon = if (selected) {
-            { Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
-        } else null,
-    )
-}
-
-@Composable
 private fun SearchResults(
     hits: List<SearchHit>,
     loading: Boolean,
@@ -554,83 +528,137 @@ private fun SearchPlaylistRow(playlist: PlaylistRef, onClick: () -> Unit) {
     }
 }
 
-/** Flow's filter dialog: each group is a menu, and features are chips. */
-@OptIn(ExperimentalLayoutApi::class)
+private enum class FilterPane { Root, Type, Duration, Upload, Watch, Sort, Features }
+
+/**
+ * The search filters, in BitChord's song menu. Hung under the filter button,
+ * grown from its top-right corner. A group opens its own list; a tap applies it.
+ */
 @Composable
-private fun SearchFilterDialog(
+internal fun SearchFilterMenu(
+    open: Boolean,
+    anchor: Rect,
     filter: SearchFilter,
     shortsEnabled: Boolean,
-    onApply: (SearchFilter) -> Unit,
+    onChange: (SearchFilter) -> Unit,
     onDismiss: () -> Unit,
+    haze: HazeState,
+    backdrop: SnapshotBackdrop,
 ) {
-    var draft by remember(filter) { mutableStateOf(filter) }
-    val videoFilters = draft.contentType.supportsVideoFilters()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.ui_search_filters)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                FilterMenu(stringResource(R.string.ui_search_type), stringResource(draft.contentType.label()), ChipOrder.filterNot { it == ContentType.SHORTS && !shortsEnabled }, { stringResource(it.label()) }) {
-                    draft = draft.copy(contentType = it)
-                }
-                if (videoFilters) {
-                    FilterMenu(stringResource(R.string.ui_search_duration), stringResource(draft.duration.label()), Duration.entries, { stringResource(it.label()) }) {
-                        draft = draft.copy(duration = it)
+    var pane by remember { mutableStateOf(FilterPane.Root) }
+    val video = filter.contentType.supportsVideoFilters()
+    LaunchedEffect(open) { if (!open) pane = FilterPane.Root }
+    LaunchedEffect(video) {
+        if (!video && pane != FilterPane.Root && pane != FilterPane.Type && pane != FilterPane.Sort) pane = FilterPane.Root
+    }
+    IosMenuPopover(
+        item = filter.takeIf { open },
+        anchor = anchor,
+        onDismiss = onDismiss,
+        backdrop = backdrop,
+        hazeState = haze,
+        dropBelow = true,
+        alignEnd = true,
+    ) { current ->
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            when (pane) {
+                FilterPane.Root -> {
+                    FilterGroup(stringResource(R.string.ui_search_type), SfIcons.List, stringResource(current.contentType.label())) { pane = FilterPane.Type }
+                    if (video) {
+                        FilterGroup(stringResource(R.string.ui_search_duration), SfIcons.Clock, stringResource(current.duration.label())) { pane = FilterPane.Duration }
+                        FilterGroup(stringResource(R.string.ui_search_upload_date), SfIcons.History, stringResource(current.uploadDate.label())) { pane = FilterPane.Upload }
+                        FilterGroup(stringResource(R.string.ui_search_watched), SfIcons.PlayCircle, stringResource(current.watchState.label())) { pane = FilterPane.Watch }
                     }
-                    FilterMenu(stringResource(R.string.ui_search_upload_date), stringResource(draft.uploadDate.label()), UploadDate.entries, { stringResource(it.label()) }) {
-                        draft = draft.copy(uploadDate = it)
-                    }
-                    FilterMenu(stringResource(R.string.ui_search_watched), stringResource(draft.watchState.label()), WatchState.entries, { stringResource(it.label()) }) {
-                        draft = draft.copy(watchState = it)
+                    FilterGroup(stringResource(R.string.ui_search_sort), SfIcons.Reorder, stringResource(current.sortType.label())) { pane = FilterPane.Sort }
+                    if (video) {
+                        FilterGroup(
+                            stringResource(R.string.ui_search_features),
+                            SfIcons.Tune,
+                            if (current.features.isEmpty()) stringResource(R.string.ui_search_any) else current.features.size.toString(),
+                        ) { pane = FilterPane.Features }
                     }
                 }
-                FilterMenu(stringResource(R.string.ui_search_sort), stringResource(draft.sortType.label()), SortType.entries, { stringResource(it.label()) }) {
-                    draft = draft.copy(sortType = it)
+                FilterPane.Type -> FilterChoices(
+                    stringResource(R.string.ui_search_type),
+                    ChipOrder.filterNot { it == ContentType.SHORTS && !shortsEnabled },
+                    current.contentType,
+                    { stringResource(it.label()) },
+                    onBack = { pane = FilterPane.Root },
+                ) {
+                    onChange(current.copy(contentType = it))
+                    pane = FilterPane.Root
                 }
-                if (videoFilters) {
-                    HorizontalDivider()
-                    Text(stringResource(R.string.ui_search_features), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SearchFeature.entries.forEach { feature ->
-                            val selected = feature in draft.features
-                            SearchChip(stringResource(feature.label()), selected) {
-                                draft = draft.copy(features = if (selected) draft.features - feature else draft.features + feature)
-                            }
+                FilterPane.Duration -> FilterChoices(
+                    stringResource(R.string.ui_search_duration),
+                    Duration.entries,
+                    current.duration,
+                    { stringResource(it.label()) },
+                    onBack = { pane = FilterPane.Root },
+                ) {
+                    onChange(current.copy(duration = it))
+                    pane = FilterPane.Root
+                }
+                FilterPane.Upload -> FilterChoices(
+                    stringResource(R.string.ui_search_upload_date),
+                    UploadDate.entries,
+                    current.uploadDate,
+                    { stringResource(it.label()) },
+                    onBack = { pane = FilterPane.Root },
+                ) {
+                    onChange(current.copy(uploadDate = it))
+                    pane = FilterPane.Root
+                }
+                FilterPane.Watch -> FilterChoices(
+                    stringResource(R.string.ui_search_watched),
+                    WatchState.entries,
+                    current.watchState,
+                    { stringResource(it.label()) },
+                    onBack = { pane = FilterPane.Root },
+                ) {
+                    onChange(current.copy(watchState = it))
+                    pane = FilterPane.Root
+                }
+                FilterPane.Sort -> FilterChoices(
+                    stringResource(R.string.ui_search_sort),
+                    SortType.entries,
+                    current.sortType,
+                    { stringResource(it.label()) },
+                    onBack = { pane = FilterPane.Root },
+                ) {
+                    onChange(current.copy(sortType = it))
+                    pane = FilterPane.Root
+                }
+                FilterPane.Features -> {
+                    IosMenuRow(stringResource(R.string.ui_search_features), SfIcons.ArrowBack, onClick = { pane = FilterPane.Root })
+                    SearchFeature.entries.forEach { feature ->
+                        val on = feature in current.features
+                        IosMenuRow(stringResource(feature.label()), if (on) SfIcons.Check else null) {
+                            onChange(current.copy(features = if (on) current.features - feature else current.features + feature))
                         }
                     }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = { onApply(draft) }) { Text(stringResource(R.string.ui_search_apply)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_cancel)) } },
-    )
+        }
+    }
 }
 
 @Composable
-private fun <T> FilterMenu(
-    label: String,
-    value: String,
+private fun FilterGroup(label: String, icon: ImageVector, value: String, onClick: () -> Unit) {
+    IosMenuRow(label, icon, onClick = onClick, value = value)
+}
+
+@Composable
+private fun <T> FilterChoices(
+    title: String,
     options: List<T>,
-    optionLabel: @Composable (T) -> String,
-    onSelect: (T) -> Unit,
+    selected: T,
+    label: @Composable (T) -> String,
+    onBack: () -> Unit,
+    onPick: (T) -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        Row(
-            Modifier.fillMaxWidth().pressable { expanded = true }.padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(label, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-            Text(value, style = MaterialTheme.typography.bodyLarge)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(optionLabel(option)) },
-                    onClick = { expanded = false; onSelect(option) },
-                )
-            }
-        }
+    IosMenuRow(title, SfIcons.ArrowBack, onClick = onBack)
+    options.forEach { option ->
+        IosMenuRow(label(option), if (option == selected) SfIcons.Check else null) { onPick(option) }
     }
 }
 
