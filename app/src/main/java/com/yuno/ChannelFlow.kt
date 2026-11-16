@@ -1,11 +1,8 @@
 package com.yuno
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -17,11 +14,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -41,8 +36,8 @@ import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material.icons.outlined.VideoLibrary
-import androidx.compose.material.icons.rounded.Check
 import com.yuno.icons.SfIcons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -63,13 +58,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -81,15 +74,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.yuno.backdrop.backdrops.SnapshotBackdrop
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
-import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
-import dev.chrisbanes.haze.materials.HazeMaterials
-import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 /** Latest / Popular / Oldest are one menu. Everything else (Members only, Public, …) is a chip. */
 private val SortTitles = setOf("latest", "popular", "oldest")
@@ -316,75 +306,39 @@ private fun SortChip(
 }
 
 /**
- * The sort menu, with the hold menu's blur. It has to be drawn outside the page recording,
- * or the blur has nothing behind it to sample.
+ * Latest / Popular / Oldest, as BitChord's song ⋮ menu. Drawn outside the page
+ * recording, so the panel's frost has the page to sample.
  */
-@OptIn(ExperimentalHazeMaterialsApi::class)
 @Composable
-internal fun ChannelSortMenuOverlay(haze: HazeState) {
+internal fun ChannelSortMenuOverlay(haze: HazeState, backdrop: SnapshotBackdrop) {
     val host = LocalSortMenu.current ?: return
-    val request = host.request ?: return
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val plate = (if (dark) Color.Black else Color.White).copy(alpha = 0.5f)
-    val hairline = if (dark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f)
-    val menuShape = RoundedCornerShape(30.dp)
-    BackHandler { host.request = null }
-    Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .hazeEffect(state = haze, style = HazeMaterials.ultraThin(MaterialTheme.colorScheme.background))
-                .background(if (dark) Color.Black.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = { host.request = null },
-                ),
-        )
-        Column(
-            Modifier
-                .offset { IntOffset(request.anchor.left.roundToInt(), request.anchor.bottom.roundToInt() + 6) }
-                .widthIn(min = 200.dp)
-                .shadow(24.dp, menuShape, ambientColor = Color.Black.copy(alpha = 0.30f), spotColor = Color.Black.copy(alpha = 0.30f))
-                .clip(menuShape)
-                .background(plate)
-                .border(0.5.dp, hairline, menuShape)
-                .padding(vertical = 8.dp)
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
-        ) {
-            request.labels.forEachIndexed { index, label ->
-                SortMenuRow(label, selected = index == request.selected, dark = dark) {
-                    host.request = null
-                    request.onPick(index)
-                }
-            }
+    val request = host.request
+    // The still the panel blurs, taken as the menu opens and let go once it has played out.
+    LaunchedEffect(request != null) {
+        if (request != null && isGlassSupported()) backdrop.capture()
+        else {
+            delay(400)
+            backdrop.release()
         }
     }
-}
-
-/** One row of the sort menu, in the same plate, type and press as the hold-on-video menu. */
-@Composable
-private fun SortMenuRow(label: String, selected: Boolean, dark: Boolean, onClick: () -> Unit) {
-    val labelColor = if (dark) Color.White else Color(0xFF1A1A1A)
-    val pressedFill = if (dark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.07f)
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (pressed) pressedFill else Color.Transparent)
-            .clickable(interaction, indication = null, onClick = onClick)
-            .heightIn(min = 44.dp)
-            .padding(start = 12.dp, end = 14.dp, top = 11.dp, bottom = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.width(28.dp), contentAlignment = Alignment.Center) {
-            if (selected) Icon(Icons.Rounded.Check, null, tint = labelColor, modifier = Modifier.size(21.dp))
+    IosMenuPopover(
+        item = request,
+        anchor = request?.anchor,
+        onDismiss = { host.request = null },
+        backdrop = backdrop,
+        hazeState = haze,
+        dropBelow = true,
+    ) { menu ->
+        menu.labels.forEachIndexed { index, label ->
+            IosMenuRow(
+                label = label,
+                icon = if (index == menu.selected) SfIcons.Check else null,
+                onClick = {
+                    host.request = null
+                    menu.onPick(index)
+                },
+            )
         }
-        Spacer(Modifier.width(10.dp))
-        Text(label, color = labelColor, fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

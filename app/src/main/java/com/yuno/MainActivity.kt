@@ -78,6 +78,8 @@ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import com.yuno.backdrop.backdrops.layerBackdrop
 import com.yuno.backdrop.backdrops.rememberLayerBackdrop
+import com.yuno.backdrop.backdrops.rememberSnapshotBackdrop
+import com.yuno.backdrop.backdrops.snapshotBackdropSource
 import com.yuno.floatingtabbar.rememberFloatingTabBarScrollConnection
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -459,12 +461,15 @@ fun YunoApp() {
         }
     }
     val appBackdrop = rememberLayerBackdrop(onDraw = paintBackdrop)
+    // The still BitChord's ⋮ menu blurs under its panel. Nothing is recorded until a menu opens.
+    val sortBackdrop = rememberSnapshotBackdrop()
     val topChrome = remember { TopChromeHost() }
     // One recording of everything on the page, so the glass matches the screen
     // during a transition instead of holding the page that just closed. The
     // top buttons are drawn by TopChromeLayer, outside this box.
     val pageSample = Modifier
         .hazeSource(hazeState)
+        .snapshotBackdropSource(sortBackdrop)
         .then(if (glassOn) Modifier.layerBackdrop(appBackdrop) else Modifier)
         .then(if (glassOn && tab != Tab.Shorts) Modifier.nestedScroll(navScroll) else Modifier)
     BoxWithConstraints(Modifier.fillMaxSize().background(c.background)) {
@@ -833,7 +838,7 @@ fun YunoApp() {
                 }
             }
         }
-        ChannelSortMenuOverlay(hazeState)
+        ChannelSortMenuOverlay(hazeState, sortBackdrop)
         VideoHeldMenu(
             video = optionsFor.takeIf { !showNowPlaying },
             held = optionsHeld,
