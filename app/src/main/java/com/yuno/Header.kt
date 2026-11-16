@@ -558,6 +558,20 @@ fun LayoutAction(grid: Boolean, onClick: () -> Unit) {
     }
 }
 
+/** Search filters, as one slot in [PageActions]. Filled when a filter is on. */
+@Composable
+fun SearchFilterAction(active: Boolean, onClick: () -> Unit) {
+    val glass = LocalLiquidGlassEnabled.current && isGlassSupported()
+    val tint = when {
+        active -> MaterialTheme.colorScheme.primary
+        glass -> glassContentColor()
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    Box(Modifier.size(TopControl).pressable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(SfIcons.Tune, contentDescription = stringResource(R.string.ui_search_filters), tint = tint, modifier = Modifier.size(22.dp))
+    }
+}
+
 /** Share, as one slot in [PageActions]. The artist page's trailing share. */
 @Composable
 fun ShareAction(onClick: () -> Unit) {

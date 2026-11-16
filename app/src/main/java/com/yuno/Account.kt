@@ -551,6 +551,108 @@ object InnerTube {
     }
     suspend fun history(next: String? = null) = browse("FEhistory", next)
 
+    /**
+     * One page of search. Filters and sorting ride in [params] (Flow's `videoSearch`); paging rides
+     * in [continuation]. Anonymous when signed out, the same way guest Home searches.
+     */
+    suspend fun search(query: String, params: String? = null, continuation: String? = null): SearchPage = withContext(Dispatchers.IO) {
+        val body = if (continuation != null) JSONObject().put("continuation", continuation)
+        else JSONObject().put("query", query).apply { if (!params.isNullOrBlank()) put("params", params) }
+        parseSearch(postAny("search", body))
+    }
+
+    /**
+     * Flow's `toSearchResultsPage`, read with this app's renderers: videos, channels, playlists and
+     * Shorts, in the feed's own order. A shelf's contents are flattened in so a "latest" strip is
+     * not dropped. The walk stays inside the search feed, not the whole response.
+     */
+    internal fun parseSearch(root: JSONObject): SearchPage {
+        val hits = mutableListOf<SearchHit>()
+        val seen = HashSet<String>()
+        var next: String? = null
+        val entries = root.searchFeedEntries()
+        if (entries.isEmpty()) {
+            val page = parseFeed(root, includeLive = true)
+            return SearchPage(page.videos.map { SearchHit.Video(it) }, page.next)
+        }
+        entries.forEach { entry ->
+            entry.collectSearch(hits, seen) { token -> if (next == null) next = token }
+        }
+        return SearchPage(hits, next)
+    }
+
+    private fun JSONObject.searchFeedEntries(): List<JSONObject> {
+        val sectionList = optJSONObject("contents")
+            ?.optJSONObject("twoColumnSearchResultsRenderer")
+            ?.optJSONObject("primaryContents")
+            ?.optJSONObject("sectionListRenderer")
+        if (sectionList != null) return sectionList.optJSONArray("contents").flattenSearchSections()
+        val commands = optJSONArray("onResponseReceivedCommands") ?: return emptyList()
+        val out = mutableListOf<JSONObject>()
+        for (i in 0 until commands.length()) {
+            commands.optJSONObject(i)
+                ?.optJSONObject("appendContinuationItemsAction")
+                ?.optJSONArray("continuationItems")
+                ?.flattenSearchSections()
+                ?.let(out::addAll)
+        }
+        return out
+    }
+
+    /** Flow's `flattenItemSections`: an item section opens into its contents; anything else stays one entry. */
+    private fun JSONArray?.flattenSearchSections(): List<JSONObject> {
+        if (this == null) return emptyList()
+        val out = mutableListOf<JSONObject>()
+        for (i in 0 until length()) {
+            val entry = optJSONObject(i) ?: continue
+            val contents = entry.optJSONObject("itemSectionRenderer")?.optJSONArray("contents")
+            if (contents == null) out += entry
+            else for (j in 0 until contents.length()) contents.optJSONObject(j)?.let(out::add)
+        }
+        return out
+    }
+
+    private fun JSONObject.collectSearch(hits: MutableList<SearchHit>, seen: MutableSet<String>, token: (String) -> Unit) {
+        val keys = keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            when (val child = opt(key)) {
+                is JSONObject -> when (key) {
+                    "continuationItemRenderer", "continuationItemViewModel" ->
+                        child.collectStrings("token").firstOrNull()?.let(token)
+                    "videoRenderer", "gridVideoRenderer", "compactVideoRenderer" ->
+                        if (!isMembersOnly(child)) parseVideoRenderer(child)?.let { addSearchVideo(hits, seen, it, short = false) }
+                    "lockupViewModel" -> when (child.optString("contentType")) {
+                        "LOCKUP_CONTENT_TYPE_VIDEO" -> if (!isMembersOnly(child)) parseLockup(child)?.let { addSearchVideo(hits, seen, it, short = false) }
+                        else -> playlistOf(key, child)?.let { addSearchPlaylist(hits, seen, it) }
+                    }
+                    "playlistRenderer", "gridPlaylistRenderer" -> playlistOf(key, child)?.let { addSearchPlaylist(hits, seen, it) }
+                    "channelRenderer", "gridChannelRenderer" -> addSearchChannel(hits, seen, child)
+                    "shortsLockupViewModel", "reelItemRenderer" -> parseShortLockup(child)?.let { addSearchVideo(hits, seen, it, short = true) }
+                    else -> child.collectSearch(hits, seen, token)
+                }
+                is JSONArray -> for (i in 0 until child.length()) child.optJSONObject(i)?.collectSearch(hits, seen, token)
+            }
+        }
+    }
+
+    private fun addSearchVideo(hits: MutableList<SearchHit>, seen: MutableSet<String>, item: VideoItem, short: Boolean) {
+        if (seen.add("v:${item.id}")) hits += SearchHit.Video(item, short)
+    }
+
+    private fun addSearchPlaylist(hits: MutableList<SearchHit>, seen: MutableSet<String>, ref: PlaylistRef) {
+        if (seen.add("p:${ref.id}")) hits += SearchHit.Playlist(ref)
+    }
+
+    private fun addSearchChannel(hits: MutableList<SearchHit>, seen: MutableSet<String>, obj: JSONObject) {
+        val id = obj.optString("channelId").takeIf { it.startsWith("UC") } ?: return
+        if (!seen.add("c:$id")) return
+        hits += SearchHit.Channel(
+            ChannelRef(id, obj.text("title") ?: "", obj.thumbnails()?.lastOrNull()?.let(::absoluteUrl)),
+            obj.text("subscriberCountText") ?: obj.text("videoCountText"),
+        )
+    }
+
     /** A playlist's videos; anonymous when signed out, so a channel's public playlists open too. */
     suspend fun playlist(id: String, next: String? = null): FeedPage = withContext(Dispatchers.IO) {
         val body = if (next != null) JSONObject().put("continuation", next) else JSONObject().put("browseId", "VL$id")

@@ -12,7 +12,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
@@ -517,7 +516,7 @@ class SearchState(private val scope: CoroutineScope) {
         private set
     var submitted by mutableStateOf("")
         private set
-    var results by mutableStateOf<List<VideoItem>>(emptyList())
+    var hits by mutableStateOf<List<SearchHit>>(emptyList())
         private set
     var suggestions by mutableStateOf<List<String>>(emptyList())
         private set
@@ -529,32 +528,67 @@ class SearchState(private val scope: CoroutineScope) {
         private set
     var generation by mutableStateOf(0)
         private set
+    var filter by mutableStateOf(SearchFilter())
+        private set
+    /** Typing over a finished search. Back returns to those results before leaving the page. */
+    var typing by mutableStateOf(true)
+        private set
+    var filtersOpen by mutableStateOf(false)
     /** The field in the top bar has focus. The page reads it; the bar writes it. */
     var fieldFocused by mutableStateOf(false)
+    val showingResults get() = submitted.isNotBlank() && !typing
+    val hasMore get() = next != null
+    private var next: String? = null
     private var job: Job? = null
     private var suggestJob: Job? = null
+    /** A pasted YouTube link, opened by the screen instead of searched. */
+    var onLink: ((YoutubeTarget) -> Unit)? = null
 
     fun reset() {
         job?.cancel()
         suggestJob?.cancel()
         query = ""
         submitted = ""
-        results = emptyList()
+        hits = emptyList()
+        next = null
         suggestions = emptyList()
         suggestionsLoading = false
         loading = false
         error = null
+        filter = SearchFilter()
+        typing = true
+        filtersOpen = false
+    }
+
+    fun startTyping() { typing = true }
+
+    /** Back to the search already on screen. The field returns to what was submitted. */
+    fun stopTyping() {
+        typing = false
+        suggestJob?.cancel()
+        suggestions = emptyList()
+        suggestionsLoading = false
+        if (submitted.isNotEmpty()) query = submitted
+    }
+
+    /** True when Back should return to the results instead of leaving. */
+    fun returnToResults(): Boolean {
+        if (!typing || submitted.isEmpty()) return false
+        stopTyping()
+        return true
     }
 
     fun updateQuery(text: String) {
         query = text
+        typing = true
         suggestJob?.cancel()
         if (text.isBlank()) {
             suggestions = emptyList()
             suggestionsLoading = false
-            if (submitted.isNotEmpty() || results.isNotEmpty() || error != null || loading) {
+            if (submitted.isNotEmpty() || hits.isNotEmpty() || error != null || loading) {
                 submitted = ""
-                results = emptyList()
+                hits = emptyList()
+                next = null
                 error = null
                 loading = false
                 job?.cancel()
@@ -570,26 +604,73 @@ class SearchState(private val scope: CoroutineScope) {
         }
     }
 
+    fun updateFilter(nextFilter: SearchFilter) {
+        val refetch = nextFilter.toSearchParams() != filter.toSearchParams()
+        filter = nextFilter
+        if (refetch && submitted.isNotEmpty()) load(record = false)
+    }
+
     fun submit() {
+        val q = query.trim()
+        if (q.isEmpty()) return
+        parseYoutubeTarget(q)?.let { target ->
+            typing = false
+            suggestJob?.cancel()
+            suggestions = emptyList()
+            onLink?.invoke(target)
+            return
+        }
+        load(record = true)
+    }
+
+    fun loadMore() {
+        val token = next ?: return
+        if (loading || submitted.isEmpty()) return
+        loading = true
+        job?.cancel()
+        val q = submitted
+        val params = filter.toSearchParams()
+        job = scope.launch {
+            val result = runCatching { InnerTube.search(q, params, token) }
+            if (result.isSuccess) {
+                val page = result.getOrThrow()
+                val seen = hits.mapTo(HashSet()) { it.key() }
+                hits = hits + page.hits.filter { seen.add(it.key()) }
+                next = page.next
+            } else error = YouTube.friendlyError(result.exceptionOrNull()!!)
+            loading = false
+        }
+    }
+
+    private fun load(record: Boolean) {
         val q = query.trim()
         if (q.isEmpty()) return
         suggestJob?.cancel()
         suggestions = emptyList()
         suggestionsLoading = false
-        SearchHistory.add(q)
+        if (record) SearchHistory.add(q)
         submitted = q
+        typing = false
         loading = true
         error = null
-        if (results.isNotEmpty()) generation++
-        results = emptyList()
+        if (hits.isNotEmpty()) generation++
+        hits = emptyList()
+        next = null
         job?.cancel()
+        val params = filter.toSearchParams()
         job = scope.launch {
-            runCatching { YouTube.search(q) }
-                .onSuccess { results = it }
+            runCatching { InnerTube.search(q, params, null) }
+                .onSuccess { hits = it.hits; next = it.next }
                 .onFailure { error = YouTube.friendlyError(it) }
             loading = false
         }
     }
+}
+
+private fun SearchHit.key(): String = when (this) {
+    is SearchHit.Video -> "v:${item.id}"
+    is SearchHit.Channel -> "c:${ref.id}"
+    is SearchHit.Playlist -> "p:${ref.id}"
 }
 
 /** The search field, in the shared top bar. Focus and the keyboard live with the field. */
@@ -618,7 +699,10 @@ fun SearchTopAccessory(state: SearchState) {
             showSearchKeyboard()
         },
         focusRequester = searchFocus,
-        onFocusChanged = { state.fieldFocused = it },
+        onFocusChanged = {
+            state.fieldFocused = it
+            if (it) state.startTyping()
+        },
     )
 }
 
@@ -637,106 +721,6 @@ private fun dismissAndSearch(
             ?.hideSoftInputFromWindow(view.windowToken, 0)
     }, 120)
     state.submit()
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun SearchScreen(
-    state: SearchState,
-    contentPadding: PaddingValues,
-    onOpen: (VideoItem) -> Unit,
-    scrollToTop: Int = 0,
-) {
-    val c = MaterialTheme.colorScheme
-    val keyboard = LocalSoftwareKeyboardController.current
-    val focus = LocalFocusManager.current
-    val view = LocalView.current
-    fun submit() = dismissAndSearch(state, focus, keyboard, view)
-    // The keyboard closed by Back or its own button leaves the field focused; drop the focus
-    // with it so the history gives way to the results again.
-    val imeVisible = WindowInsets.isImeVisible
-    LaunchedEffect(imeVisible) { if (!imeVisible && state.fieldFocused) focus.clearFocus() }
-    // Past searches, filtered by what's typed: while typing, and on the empty page.
-    val history = SearchHistory.matching(state.query)
-    val draft = state.query.isNotBlank() &&
-        (state.submitted.isEmpty() || state.query.trim() != state.submitted.trim())
-    // Suggestions win while drafting; history when focused/empty and not mid-suggestion draft.
-    val showHistory = !draft && history.isNotEmpty() && (state.fieldFocused || state.submitted.isEmpty())
-    val bodyTop = pageBodyTop()
-    Box(Modifier.fillMaxSize().background(c.background).overlayTouchBlock()) {
-        Box(Modifier.fillMaxSize()) {
-        val listShown = showHistory || (draft && state.suggestions.isNotEmpty()) ||
-            (state.loading && state.submitted.isNotEmpty() && state.error == null) ||
-            (state.results.isNotEmpty() && state.error == null)
-        Box(Modifier.fillMaxSize()) {
-        Box(Modifier.padding(top = if (listShown) 0.dp else bodyTop)) {
-        when {
-            draft && state.suggestions.isNotEmpty() -> {
-                LazyColumn(contentPadding = contentPadding.withTop(bodyTop)) {
-                    items(state.suggestions, key = { it }) { suggestion ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .pressable {
-                                    state.updateQuery(suggestion)
-                                    submit()
-                                }
-                                .padding(horizontal = PageGutter, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                SfIcons.Search,
-                                null,
-                                tint = c.onSurfaceVariant,
-                                modifier = Modifier.size(22.dp),
-                            )
-                            Spacer(Modifier.width(16.dp))
-                            Text(
-                                suggestion,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
-            // Still drafting: wait for suggestions (no "keep typing" placeholder).
-            draft -> Unit
-            showHistory -> SearchHistoryList(
-                history = history,
-                contentPadding = contentPadding.withTop(bodyTop),
-                onSearch = { state.updateQuery(it); submit() },
-            )
-            state.error != null -> EmptyState(
-                icon = SfIcons.CloudOff,
-                title = "Search didn't load",
-                body = state.error.orEmpty(),
-                action = { PillButton("Try again", { state.submit() }) },
-            )
-            state.submitted.isEmpty() -> EmptyLine(stringResource(R.string.ui_search_intro_body))
-            state.results.isEmpty() && !state.loading -> EmptyLine(stringResource(R.string.ui_search_no_match, state.submitted))
-            else -> {
-                val list = rememberScrollToTop(scrollToTop)
-                // A new search starts at the top. The first page arriving does not.
-                LaunchedEffect(state.generation) { list.scrollToItem(0) }
-                // scrollToItem(0) pins this item to the top of the viewport, so the
-                // clearance has to be an item. Content padding would scroll away and
-                // the first thumbnail would sit under the back button.
-                LazyColumn(state = list, contentPadding = contentPadding) {
-                    item(key = "top-gap") { Spacer(Modifier.height(bodyTop)) }
-                    if (state.results.isEmpty()) items(4) { FeedSkeletons(1) }
-                    else items(state.results, key = { it.id }) { video ->
-                        VideoCard(video, onClick = { onOpen(video) })
-                    }
-                }
-            }
-        }
-        }
-        }
-        }
-    }
 }
 
 /** The search field, drawn inside the top bar's pill on a surface tone. */
@@ -807,47 +791,6 @@ internal fun SearchBarField(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(SfIcons.Close, "Clear", tint = hint, modifier = Modifier.size(18.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun SearchHistoryList(history: List<String>, contentPadding: PaddingValues, onSearch: (String) -> Unit) {
-    val c = MaterialTheme.colorScheme
-    LazyColumn(contentPadding = contentPadding) {
-        item(key = "header") {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(end = 12.dp),
-            ) {
-                SectionTitle("Recent searches", Modifier.weight(1f).alignByBaseline(), top = 0.dp)
-                Box(Modifier.alignByBaseline()) { TextLink("Clear all") { SearchHistory.clear() } }
-            }
-        }
-        items(history, key = { it }) { query ->
-            Row(
-                modifier = Modifier
-                    .animateItem()
-                    .fillMaxWidth()
-                    .pressable { onSearch(query) }
-                    .height(52.dp)
-                    .padding(start = PageGutter, end = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(SfIcons.History, null, tint = c.onSurfaceVariant, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.width(16.dp))
-                Text(
-                    query,
-                    modifier = Modifier.weight(1f),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Box(
-                    modifier = Modifier.size(44.dp).pressable { SearchHistory.remove(query) },
-                    contentAlignment = Alignment.Center,
-                ) { Icon(SfIcons.Close, "Remove", tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
             }
         }
     }

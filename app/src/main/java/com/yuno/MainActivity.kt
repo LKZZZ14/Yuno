@@ -195,6 +195,7 @@ fun YunoApp() {
     val player = rememberPlayerState()
     val scope = rememberCoroutineScope()
     val search = remember { SearchState(scope) }
+    var searchGrid by remember { mutableStateOf(true) }
     val appContext = LocalContext.current.applicationContext
     val lib = remember { LibraryData(scope, appContext) }
     LaunchedEffect(Account.signedIn) { if (Account.signedIn) lib.warmUp() }
@@ -372,6 +373,7 @@ fun YunoApp() {
     val goBack: () -> Unit = {
         when (val route = navigator.visibleRoute()) {
             AppRoute.Settings -> if (settingsQuery.isNotEmpty()) settingsQuery = "" else navigator.pop()
+            AppRoute.Search -> if (search.returnToResults()) Unit else navigator.pop()
             is AppRoute.Channel -> {
                 val channel = channelStates[route.url]
                 if (channel?.searchOpen == true) channel.closeSearch() else navigator.pop()
@@ -539,7 +541,15 @@ fun YunoApp() {
                             scrollToTop = scrollToTop[Tab.Library] ?: 0, pullState = libraryPull,
                         )
                     }
-                    AppRoute.Search -> SearchScreen(search, contentPadding, onOpen = player::open)
+                    AppRoute.Search -> SearchScreen(
+                        search,
+                        contentPadding,
+                        grid = searchGrid,
+                        onOpen = player::open,
+                        onOpenChannel = ::showChannel,
+                        onOpenPlaylist = { navigator.push(AppRoute.Playlist(it)) },
+                        onOpenShorts = ::openShorts,
+                    )
                     AppRoute.Settings -> SettingsScreen(
                         player, section = null, query = settingsQuery, onQuery = { settingsQuery = it },
                         onOpenSection = { navigator.push(AppRoute.SettingsSection(it)) },
@@ -607,6 +617,10 @@ fun YunoApp() {
                 },
             ) {
                 if (channelLayout) LayoutAction(channel!!.gridView) { channel.toggleGrid() }
+                if (route is AppRoute.Search && search.showingResults) {
+                    LayoutAction(searchGrid) { searchGrid = !searchGrid }
+                    SearchFilterAction(search.filter.activeCount > 0) { search.filtersOpen = true }
+                }
                 if (route is AppRoute.Playlist) {
                     val grid = playlistGrid[route.ref.id] != false
                     LayoutAction(grid) { playlistGrid[route.ref.id] = !grid }

@@ -76,6 +76,12 @@ class InnerTubeParseTest {
         assertTrue(sharpenChannelAvatarUrl(broken, 48).contains("=s88"))
     }
 
+    @Test fun searchPageKeepsMixedOrder() {
+        val page = InnerTube.parseSearch(fixture("search"))
+        assertTrue("search hits", page.hits.isNotEmpty())
+        assertNotNull("search continuation", page.next)
+    }
+
     @Test fun searchResults() {
         val page = InnerTube.parseFeed(fixture("search"))
         assertTrue("got ${page.videos.size}", page.videos.size >= 10)
