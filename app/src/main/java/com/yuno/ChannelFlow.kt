@@ -390,7 +390,7 @@ private fun SortMenuRow(label: String, selected: Boolean, dark: Boolean, onClick
 
 /** The subscribe pill, as a chip. Liquid glass draws the rim while that setting is on. */
 @Composable
-private fun GlassChip(
+internal fun GlassChip(
     label: String,
     selected: Boolean,
     dropdown: Boolean = false,

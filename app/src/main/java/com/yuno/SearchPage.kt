@@ -98,6 +98,8 @@ fun SearchScreen(
         }
     }
     val bodyTop = pageBodyTop()
+    // The field lives in the top bar, so the chips sit just under it rather than below a page title.
+    val resultsTop = topBarHeight() + 6.dp
     val watched = WatchHistory.videos.map { it.id }.toSet()
     val shown = remember(state.hits, state.filter.watchState, watched) {
         state.hits.watchFiltered(state.filter.watchState, watched)
@@ -296,30 +298,30 @@ private fun SearchFilterBar(
     val types = remember(shortsEnabled) { ChipOrder.filterNot { it == ContentType.SHORTS && !shortsEnabled } }
     val videoFilters = filter.contentType.supportsVideoFilters()
     androidx.compose.foundation.lazy.LazyRow(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(horizontal = 12.dp),
+        contentPadding = PaddingValues(horizontal = PageGutter),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         items(types, key = { it.name }) { type ->
-            SearchChip(stringResource(type.label()), filter.contentType == type) { onFilterChange(filter.copy(contentType = type)) }
+            GlassChip(stringResource(type.label()), filter.contentType == type) { onFilterChange(filter.copy(contentType = type)) }
         }
         if (videoFilters) {
             item(key = "recent") {
                 val recent = filter.uploadDate == UploadDate.THIS_WEEK
-                SearchChip(stringResource(R.string.ui_search_recent), recent) {
+                GlassChip(stringResource(R.string.ui_search_recent), recent) {
                     onFilterChange(filter.copy(uploadDate = if (recent) UploadDate.ANY else UploadDate.THIS_WEEK))
                 }
             }
             item(key = "unwatched") {
                 val on = filter.watchState == WatchState.UNWATCHED
-                SearchChip(stringResource(R.string.ui_search_unwatched), on) {
+                GlassChip(stringResource(R.string.ui_search_unwatched), on) {
                     onFilterChange(filter.copy(watchState = if (on) WatchState.ANY else WatchState.UNWATCHED))
                 }
             }
             item(key = "watched") {
                 val on = filter.watchState == WatchState.WATCHED
-                SearchChip(stringResource(R.string.ui_search_watched), on) {
+                GlassChip(stringResource(R.string.ui_search_watched), on) {
                     onFilterChange(filter.copy(watchState = if (on) WatchState.ANY else WatchState.WATCHED))
                 }
             }
