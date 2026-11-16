@@ -38,7 +38,7 @@ On an upstream merge, ask only if that update **conflicts with or rewrites** one
 - **Keep** — move the line under **Always keep**.
 - **Let Skipii replace it** — drop the line and follow upstream for that spot.
 
-- Loading skeletons (`Skeleton.kt`) on feeds, the channel page, and comments. Spinners stay for playback, sign-in, and posting.
+- Loading skeletons (`Skeleton.kt`) on feeds, the channel page, and comments. Channel placeholders match the tab they stand in for: the opening page is the header, the tab row, a `PageGutter`, then the 168dp video rows; Videos and Live stay those rows, or the home card when the grid is on; Shorts is the 160dp grid with the title under the poster and the 12dp gaps; Playlists, Shows and Podcasts stay the 142dp rows, or the inset card in the grid; Posts keep the 12dp gap above each one. Spinners stay for playback, sign-in, and posting.
 - Settings has no developer card: no "Made by @…", "Come say hi", or social links (`Settings.kt`).
 - Liquid glass stays on across launches (`LiquidGlassSetting.init` in `YunoApplication`).
 - Page changes use BitChord's switcher (`AppNavigator`, wired in `MainActivity`): tabs cut with no fade, and search, settings, a settings section, a playlist, and a channel crossfade in 180ms. The top bar stays outside that switcher. Its actions pill is BitChord's `ArtworkPageActions` (`PageActions` in `Header.kt`): the glass sits outside their no-bounce spring, and `ActionsRow` opens each gap with the action after it, so the pill shrinks and grows instead of the buttons clipping. The tab bar stays up on those pages.

@@ -472,7 +472,6 @@ private fun ChannelPage(
             }
             d == null -> LazyColumn(contentPadding = contentPadding.withTop(barHeight)) {
                 item { ChannelSkeletons() }
-                items(3) { FeedSkeletons(1) }
             }
             else -> ChannelPagerBody(state, d, tabs, pager, palette, contentPadding, barHeight, columns, onOpen, onOpenShorts, onOpenPlaylist, onMessage, ::pick)
         }
@@ -730,6 +729,7 @@ private fun ChannelPagerBody(
                 alone = shelf.items.isEmpty(),
                 phrase = palette.onBackgroundVariant,
                 lift = lift,
+                bone = if (state.gridView) ChannelBone.PlaylistCard else ChannelBone.PlaylistRow,
             )
         }
         if (pageIndex == pager.settledPage) ListLoadMore(list, shelf.items.isNotEmpty()) { state.loadMore() }
@@ -782,6 +782,7 @@ private fun ChannelPagerBody(
                             alone = shown.isEmpty(),
                             phrase = palette.onBackgroundVariant,
                             lift = lift,
+                            bone = if (state.gridView) ChannelBone.VideoCard else ChannelBone.VideoRow,
                         ) else feedTail(
                             feed.loading || feed.hasMore || feed.waiting,
                             feed.error.takeIf { feed.videos.isEmpty() },
@@ -790,6 +791,7 @@ private fun ChannelPagerBody(
                             alone = feed.videos.isEmpty(),
                             phrase = palette.onBackgroundVariant,
                             lift = lift,
+                            bone = if (state.gridView) ChannelBone.VideoCard else ChannelBone.VideoRow,
                         )
                     }
                     if (index == pager.settledPage) ListLoadMore(videosList, shown.isNotEmpty()) { state.loadMore() }
@@ -823,6 +825,7 @@ private fun ChannelPagerBody(
                             alone = feed.videos.isEmpty(),
                             phrase = palette.onBackgroundVariant,
                             lift = lift,
+                            bone = if (state.gridView) ChannelBone.VideoCard else ChannelBone.VideoRow,
                         )
                     }
                     if (index == pager.settledPage) ListLoadMore(liveList, feed.videos.isNotEmpty()) { state.loadMore() }
@@ -854,6 +857,7 @@ private fun ChannelPagerBody(
                                 alone = feed.videos.isEmpty(),
                                 phrase = palette.onBackgroundVariant,
                                 lift = lift,
+                                bone = ChannelBone.Shorts,
                             )
                         }
                     }
@@ -875,6 +879,7 @@ private fun ChannelPagerBody(
                             alone = state.posts.isEmpty(),
                             phrase = palette.onBackgroundVariant,
                             lift = lift,
+                            bone = ChannelBone.Post,
                         )
                     }
                     if (index == pager.settledPage) ListLoadMore(postsList, state.posts.isNotEmpty()) { state.loadMore() }
@@ -1069,6 +1074,7 @@ private fun LazyListScope.feedTail(
     alone: Boolean,
     phrase: Color,
     lift: androidx.compose.ui.unit.Dp,
+    bone: ChannelBone = ChannelBone.VideoRow,
 ) {
     when {
         error != null -> item {
@@ -1080,7 +1086,7 @@ private fun LazyListScope.feedTail(
             ) }
         }
         empty != null -> item { CenteredPhrase(stringResource(empty), phrase, lift) }
-        more -> item { if (alone) FeedSkeletons() else FeedSkeletons(1) }
+        more -> item { ChannelTabSkeleton(bone, page = alone) }
     }
 }
 
