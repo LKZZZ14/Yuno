@@ -9,6 +9,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -360,6 +361,8 @@ fun PageTopBar(
     // Sits just before the actions pill, outside it. The update chip keeps its
     // own fill; the pill is only the icon actions.
     beside: @Composable () -> Unit = {},
+    // Drawn under the bar, in the same chrome layer, so it can use the bar's glass.
+    footer: @Composable () -> Unit = {},
     actions: @Composable () -> Unit = {},
 ) {
     val glass = LocalLiquidGlassEnabled.current && isGlassSupported()
@@ -381,7 +384,7 @@ fun PageTopBar(
                 }
             }
             SideEffect {
-                entry.content = { PageTopBar(onBack, accessory, pull = pullState, beside = beside, actions = actions) }
+                entry.content = { PageTopBar(onBack, accessory, pull = pullState, beside = beside, footer = footer, actions = actions) }
                 host.tick++
             }
         }
@@ -390,11 +393,16 @@ fun PageTopBar(
     if (!shown) return
     val iconTint = if (glass) glassContentColor() else MaterialTheme.colorScheme.onSurface
     val extra = (pull ?: LocalBarPullRefresh.current)?.extraPadding() ?: 0.dp
-    Box(
+    Column(
         Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .then(if (extra > 0.dp) Modifier.padding(top = extra, bottom = extra) else Modifier)
+            .then(if (extra > 0.dp) Modifier.padding(top = extra) else Modifier),
+    ) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .then(if (extra > 0.dp) Modifier.padding(bottom = extra) else Modifier)
             .height(TopBarContentHeight),
     ) {
         if (onBack != null) {
@@ -436,6 +444,8 @@ fun PageTopBar(
             beside()
             PageActions(content = actions)
         }
+    }
+        footer()
     }
 }
 

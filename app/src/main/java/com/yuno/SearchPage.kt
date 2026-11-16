@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.NorthWest
@@ -72,7 +73,6 @@ private const val HistoryShown = 8
 fun SearchScreen(
     state: SearchState,
     contentPadding: PaddingValues,
-    grid: Boolean,
     onOpen: (VideoItem) -> Unit,
     onOpenChannel: (String) -> Unit,
     onOpenPlaylist: (PlaylistRef) -> Unit,
@@ -97,67 +97,58 @@ fun SearchScreen(
             keyboard?.hide()
         }
     }
-    val bodyTop = pageBodyTop()
-    // The field lives in the top bar, so the chips sit just under it rather than below a page title.
-    val resultsTop = topBarHeight() + 6.dp
+    // The bar and the chips float. The list fills the screen and scrolls behind them,
+    // so the page colour is not a slab under the sticky chrome.
+    val underBar = topBarHeight() + 8.dp
+    val underChips = topBarHeight() + 6.dp + 40.dp + 12.dp
     val watched = WatchHistory.videos.map { it.id }.toSet()
     val shown = remember(state.hits, state.filter.watchState, watched) {
         state.hits.watchFiltered(state.filter.watchState, watched)
     }
+    val topInset = if (state.showingResults) underChips else underBar
+    val inset = PaddingValues(top = topInset, bottom = contentPadding.calculateBottomPadding())
     Box(Modifier.fillMaxSize().overlayTouchBlock()) {
-        Column(Modifier.fillMaxSize().padding(top = bodyTop)) {
-            if (state.showingResults) {
-                SearchFilterBar(
-                    filter = state.filter,
-                    shortsEnabled = ShortsSetting.enabled,
-                    onFilterChange = state::updateFilter,
-                )
-            }
-            Box(Modifier.weight(1f)) {
-                when {
-                    !state.showingResults -> SearchSuggestions(
-                        query = state.query,
-                        history = SearchHistory.matching(state.query),
-                        suggestions = state.suggestions,
-                        contentPadding = contentPadding,
-                        onSubmit = { text ->
-                            state.updateQuery(text)
-                            dismissAndSearch(state, focus, keyboard)
-                        },
-                        onFill = state::updateQuery,
-                    )
-                    state.error != null && shown.isEmpty() -> EmptyState(
-                        icon = SfIcons.CloudOff,
-                        title = stringResource(R.string.ui_search_error_title),
-                        body = state.error.orEmpty(),
-                        action = { PillButton(stringResource(R.string.ui_try_again), state::submit) },
-                    )
-                    state.submitted.isEmpty() -> EmptyLine(stringResource(R.string.ui_search_intro_body))
-                    shown.isEmpty() && !state.loading -> EmptyLine(stringResource(R.string.ui_search_no_match, state.submitted))
-                    state.filter.contentType == ContentType.SHORTS -> SearchShorts(
-                        videos = shown.filterIsInstance<SearchHit.Video>().map { it.item },
-                        loading = state.loading && shown.isEmpty(),
-                        contentPadding = contentPadding,
-                        onOpen = onOpenShorts,
-                        onMore = state::loadMore,
-                        hasMore = state.hasMore,
-                    )
-                    else -> SearchResults(
-                        hits = shown,
-                        grid = grid,
-                        loading = state.loading && shown.isEmpty(),
-                        contentPadding = contentPadding,
-                        scrollToTop = scrollToTop,
-                        generation = state.generation,
-                        onOpen = onOpen,
-                        onOpenChannel = onOpenChannel,
-                        onOpenPlaylist = onOpenPlaylist,
-                        onOpenShorts = onOpenShorts,
-                        onMore = state::loadMore,
-                        hasMore = state.hasMore,
-                    )
-                }
-            }
+        when {
+            !state.showingResults -> SearchSuggestions(
+                query = state.query,
+                history = SearchHistory.matching(state.query),
+                suggestions = state.suggestions,
+                contentPadding = inset,
+                onSubmit = { text ->
+                    state.updateQuery(text)
+                    dismissAndSearch(state, focus, keyboard)
+                },
+                onFill = state::updateQuery,
+            )
+            state.error != null && shown.isEmpty() -> EmptyState(
+                icon = SfIcons.CloudOff,
+                title = stringResource(R.string.ui_search_error_title),
+                body = state.error.orEmpty(),
+                action = { PillButton(stringResource(R.string.ui_try_again), state::submit) },
+            )
+            state.submitted.isEmpty() -> EmptyLine(stringResource(R.string.ui_search_intro_body))
+            shown.isEmpty() && !state.loading -> EmptyLine(stringResource(R.string.ui_search_no_match, state.submitted))
+            state.filter.contentType == ContentType.SHORTS -> SearchShorts(
+                videos = shown.filterIsInstance<SearchHit.Video>().map { it.item },
+                loading = state.loading && shown.isEmpty(),
+                contentPadding = inset,
+                onOpen = onOpenShorts,
+                onMore = state::loadMore,
+                hasMore = state.hasMore,
+            )
+            else -> SearchResults(
+                hits = shown,
+                loading = state.loading && shown.isEmpty(),
+                contentPadding = inset,
+                scrollToTop = scrollToTop,
+                generation = state.generation,
+                onOpen = onOpen,
+                onOpenChannel = onOpenChannel,
+                onOpenPlaylist = onOpenPlaylist,
+                onOpenShorts = onOpenShorts,
+                onMore = state::loadMore,
+                hasMore = state.hasMore,
+            )
         }
     }
     if (state.filtersOpen) {
@@ -290,42 +281,65 @@ private fun SuggestionRow(
 
 /** The type chips above the results, in the order YouTube shows them. From Flow's `SearchFilterBar`. */
 @Composable
-private fun SearchFilterBar(
+internal fun SearchFilterBar(
     filter: SearchFilter,
     shortsEnabled: Boolean,
     onFilterChange: (SearchFilter) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val types = remember(shortsEnabled) { ChipOrder.filterNot { it == ContentType.SHORTS && !shortsEnabled } }
     val videoFilters = filter.contentType.supportsVideoFilters()
     androidx.compose.foundation.lazy.LazyRow(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(horizontal = PageGutter),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         items(types, key = { it.name }) { type ->
-            GlassChip(stringResource(type.label()), filter.contentType == type) { onFilterChange(filter.copy(contentType = type)) }
+            SearchChromeChip(stringResource(type.label()), filter.contentType == type) { onFilterChange(filter.copy(contentType = type)) }
         }
         if (videoFilters) {
             item(key = "recent") {
                 val recent = filter.uploadDate == UploadDate.THIS_WEEK
-                GlassChip(stringResource(R.string.ui_search_recent), recent) {
+                SearchChromeChip(stringResource(R.string.ui_search_recent), recent) {
                     onFilterChange(filter.copy(uploadDate = if (recent) UploadDate.ANY else UploadDate.THIS_WEEK))
                 }
             }
             item(key = "unwatched") {
                 val on = filter.watchState == WatchState.UNWATCHED
-                GlassChip(stringResource(R.string.ui_search_unwatched), on) {
+                SearchChromeChip(stringResource(R.string.ui_search_unwatched), on) {
                     onFilterChange(filter.copy(watchState = if (on) WatchState.ANY else WatchState.UNWATCHED))
                 }
             }
             item(key = "watched") {
                 val on = filter.watchState == WatchState.WATCHED
-                GlassChip(stringResource(R.string.ui_search_watched), on) {
+                SearchChromeChip(stringResource(R.string.ui_search_watched), on) {
                     onFilterChange(filter.copy(watchState = if (on) WatchState.ANY else WatchState.WATCHED))
                 }
             }
         }
+    }
+}
+
+/**
+ * The search field's material: liquid glass while that is on, the same frost when it is off.
+ * Drawn from the top chrome. Glass inside the page recording has nothing behind it to sample.
+ */
+@Composable
+private fun SearchChromeChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val glass = LocalLiquidGlassEnabled.current && isGlassSupported()
+    val ink = if (glass) glassContentColor() else MaterialTheme.colorScheme.onSurface
+    Row(
+        Modifier
+            .height(40.dp)
+            .floatingChrome(CircleShape)
+            .pressable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (selected) Icon(Icons.Rounded.Check, contentDescription = null, tint = ink, modifier = Modifier.size(16.dp))
+        Text(label, color = ink, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -344,7 +358,6 @@ private fun SearchChip(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun SearchResults(
     hits: List<SearchHit>,
-    grid: Boolean,
     loading: Boolean,
     contentPadding: PaddingValues,
     scrollToTop: Int,
@@ -366,8 +379,7 @@ private fun SearchResults(
                 is SearchHit.Video -> if (hit.short) {
                     // A short that arrived inside an ordinary search opens with the shorts player.
                     VideoCard(hit.item, onClick = { onOpenShorts(ShortsList(listOf(hit.item), 0)) })
-                } else if (grid) VideoCard(hit.item, onClick = { onOpen(hit.item) })
-                else VideoRow(hit.item, onClick = { onOpen(hit.item) })
+                } else VideoCard(hit.item, onClick = { onOpen(hit.item) })
                 is SearchHit.Channel -> SearchChannelRow(hit) { onOpenChannel("https://www.youtube.com/channel/${hit.ref.id}") }
                 is SearchHit.Playlist -> SearchPlaylistRow(hit.ref) { onOpenPlaylist(hit.ref) }
             }
@@ -391,7 +403,7 @@ private fun SearchShorts(
     }
     LaunchedEffect(nearEnd, videos.isNotEmpty(), hasMore) { if (nearEnd && videos.isNotEmpty() && hasMore) onMore() }
     if (loading) {
-        FeedSkeletons(4)
+        Box(Modifier.padding(top = contentPadding.calculateTopPadding())) { FeedSkeletons(4) }
         return
     }
     LazyVerticalGrid(

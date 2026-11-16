@@ -195,7 +195,6 @@ fun YunoApp() {
     val player = rememberPlayerState()
     val scope = rememberCoroutineScope()
     val search = remember { SearchState(scope) }
-    var searchGrid by remember { mutableStateOf(true) }
     val appContext = LocalContext.current.applicationContext
     val lib = remember { LibraryData(scope, appContext) }
     LaunchedEffect(Account.signedIn) { if (Account.signedIn) lib.warmUp() }
@@ -544,7 +543,6 @@ fun YunoApp() {
                     AppRoute.Search -> SearchScreen(
                         search,
                         contentPadding,
-                        grid = searchGrid,
                         onOpen = player::open,
                         onOpenChannel = ::showChannel,
                         onOpenPlaylist = { navigator.push(AppRoute.Playlist(it)) },
@@ -615,10 +613,19 @@ fun YunoApp() {
                 beside = {
                     if (route == null && tab == Tab.Home) UpdateAction()
                 },
+                footer = {
+                    if (route is AppRoute.Search && search.showingResults) {
+                        SearchFilterBar(
+                            filter = search.filter,
+                            shortsEnabled = ShortsSetting.enabled,
+                            onFilterChange = search::updateFilter,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                },
             ) {
                 if (channelLayout) LayoutAction(channel!!.gridView) { channel.toggleGrid() }
                 if (route is AppRoute.Search && search.showingResults) {
-                    LayoutAction(searchGrid) { searchGrid = !searchGrid }
                     SearchFilterAction(search.filter.activeCount > 0) { search.filtersOpen = true }
                 }
                 if (route is AppRoute.Playlist) {
