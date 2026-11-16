@@ -53,10 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.IntOffset
-import kotlin.math.roundToInt
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -82,7 +79,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import com.yuno.icons.SfIcons
 
 // ── Home / Subscriptions / Library ─────────────────────────────────────────────
@@ -195,54 +191,52 @@ private fun HomeChipPager(
         followList.firstVisibleItemIndex > 0 -> headerPx
         else -> followList.firstVisibleItemScrollOffset.coerceAtMost(headerPx)
     }
-    val headerDp = with(androidx.compose.ui.platform.LocalDensity.current) { headerPx.toDp() }
     val top = pageContentTop()
-    // The wordmark spacer is 0 until the overlay is measured, and growing it shoves the list
-    // down by that height, so a fresh open lands with the tabs already off the top.
-    var openedAtTop by remember { mutableStateOf(false) }
-    LaunchedEffect(headerPx > 0) {
-        if (headerPx <= 0 || openedAtTop) return@LaunchedEffect
-        withFrameNanos { }
-        chips.forEach { chip -> lists[chip.title]?.requestScrollToItem(0) }
-        openedAtTop = true
-    }
     BarPullRefresh(refreshing = activeFeed.refreshing, onRefresh = activeFeed::refresh, state = pullState) {
-        Box(Modifier.fillMaxSize().clipToBounds()) {
-            HorizontalPager(
-                state = pager,
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.Top,
-                beyondViewportPageCount = 1,
-            ) { page ->
-                val chip = chips[page]
-                val feed = if (chip.token == null) lib.home else lib.category(chip)
-                LaunchedEffect(chip.token) { feed.ensureLoaded() }
-                FeedList(
-                    feed,
-                    contentPadding.withTop(0.dp),
-                    onOpen,
-                    header = { item(key = "home-head") { Spacer(Modifier.height(headerDp)) } },
-                    scrollToTop = scrollToTop,
-                    pullToRefresh = false,
-                    listState = listAt(chip.title),
-                )
-            }
-            // The top inset is inside the measured block, so scrolling it away clears the
-            // tabs off the top of the screen instead of leaving their edge under the bar.
-            Column(
-                Modifier
-                    .align(Alignment.TopStart)
-                    .offset { IntOffset(0, -scrollPx) }
-                    .onSizeChanged { headerPx = it.height }
-                    .fillMaxWidth(),
-            ) {
-                Spacer(Modifier.height(top))
-                LargePageBrandMark(contentGap = 4.dp)
-                HomeChips(chips, pager.currentPage) { index ->
-                    if (index != pager.currentPage) scope.launch { pager.animateScrollToPage(index) }
+        // The list is composed only after the header is measured, so its spacer is never 0.
+        // A spacer that grows after the videos have laid out shoves the scroll down for a frame.
+        SubcomposeLayout(Modifier.fillMaxSize().clipToBounds()) { constraints ->
+            val loose = constraints.copy(minWidth = 0, minHeight = 0)
+            val header = subcompose("header") {
+                Column(Modifier.fillMaxWidth()) {
+                    Spacer(Modifier.height(top))
+                    LargePageBrandMark(contentGap = 4.dp)
+                    HomeChips(chips, pager.currentPage) { index ->
+                        if (index != pager.currentPage) scope.launch { pager.animateScrollToPage(index) }
+                    }
                 }
+            }.first().measure(loose)
+            if (headerPx != header.height) headerPx = header.height
+            val headerDp = header.height.toDp()
+            val body = subcompose("body") {
+                HorizontalPager(
+                    state = pager,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.Top,
+                    beyondViewportPageCount = 1,
+                ) { page ->
+                    val chip = chips[page]
+                    val feed = if (chip.token == null) lib.home else lib.category(chip)
+                    LaunchedEffect(chip.token) { feed.ensureLoaded() }
+                    FeedList(
+                        feed,
+                        contentPadding.withTop(0.dp),
+                        onOpen,
+                        header = { item(key = "home-head") { Spacer(Modifier.height(headerDp)) } },
+                        scrollToTop = scrollToTop,
+                        pullToRefresh = false,
+                        listState = listAt(chip.title),
+                    )
+                }
+            }.first().measure(constraints)
+            val fade = subcompose("fade") {
+                PageTopFade(listAt(followTitle ?: chips.first().title))
+            }.first().measure(loose)
+            layout(constraints.maxWidth, constraints.maxHeight) {
+                body.place(0, 0)
+                header.place(0, -scrollPx)
+                fade.place(0, 0)
             }
-            PageTopFade(listAt(followTitle ?: chips.first().title))
         }
     }
 }
