@@ -116,6 +116,12 @@
         <item quantity="one">%d video</item>
         <item quantity="other">%d videos</item>
     </plurals>
+    <!-- Flow's mediaLengthLabel: a playlist's running time, once every page is in. -->
+    <string name="ui_duration_hours_minutes">%1$d hr %2$d min</string>
+    <plurals name="ui_duration_minutes">
+        <item quantity="one">%1$d min</item>
+        <item quantity="other">%1$d min</item>
+    </plurals>
 
     <!-- ── Search ─────────────────────────────────────────────────────────── -->
     <!-- Page title (large header). -->

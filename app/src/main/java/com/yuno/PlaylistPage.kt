@@ -2,6 +2,7 @@ package com.yuno
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,8 +34,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,11 +46,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yuno.icons.SfIcons
 
 /** Shuffle beside the release page's Play pill. From BitChord's [RELEASE_SIDE_BUTTON]. */
@@ -56,16 +58,17 @@ private val ReleaseActionGap = 14.dp
 /** The cover's corners, the same radius as a video thumbnail. */
 private val CoverShape = RoundedCornerShape(FeedVideoThumbRadius.dp)
 
-/** The inset the header text and the action pills share. */
-private val HeaderGutter = PageGutter + 8.dp
+/** Flow's collapsed description, from PlaylistTitleBlock. */
+private const val DescriptionCollapsedLines = 2
 
 private const val LightFillAlpha = 0.07f
 private const val CircleEdgeAlpha = 0.10f
 
 /**
  * A playlist, laid out as BitChord's release page: a 16:9 cover the width of the page
- * inside the side padding, on the artwork's own colour, then the title, credit and
- * count, then Shuffle and Play. The rows under that are this app's videos, list or grid.
+ * inside the side padding, on the artwork's own colour, then Flow's title block
+ * (name, channel · videos · duration, description) and Shuffle and Play.
+ * The rows under that are this app's videos, list or grid.
  */
 @Composable
 fun PlaylistScreen(
@@ -110,8 +113,10 @@ private fun PlaylistBody(
     val videos = feed.videos
     val listState = rememberLazyListState()
     val columns = gridColumns()
-    val credit = videos.firstOrNull { it.channel.isNotBlank() }?.channel.orEmpty()
+    val credit = feed.playlistOwner?.takeIf { it.isNotBlank() }
+        ?: videos.firstOrNull { it.channel.isNotBlank() }?.channel.orEmpty()
     val channelUrl = videos.firstOrNull { it.channel == credit && it.channelUrl != null }?.channelUrl
+        ?: videos.firstOrNull { it.channelUrl != null }?.channelUrl
     Box(Modifier.fillMaxSize().background(palette.background)) {
         PullToRefresh(
             enabled = true,
@@ -130,7 +135,8 @@ private fun PlaylistBody(
                             art = playlist.thumbnail,
                             credit = credit,
                             channelUrl = channelUrl,
-                            meta = playlistMeta(playlist.subtitle, credit, videos.size, feed.hasMore),
+                            meta = playlistMeta(credit, videos.sumOf { it.durationSec.coerceAtLeast(0) }, videos.size, feed.hasMore),
+                            description = feed.playlistDescription,
                             palette = palette,
                             showActions = videos.isNotEmpty(),
                             onPlay = { onOpen(videos, 0) },
@@ -213,17 +219,32 @@ private fun PlaylistLoadMore(list: LazyListState, ready: Boolean, onMore: () -> 
     LaunchedEffect(nearEnd, ready) { if (nearEnd && ready) onMore() }
 }
 
+/** Flow's header line: owner · count · running time. The time waits until every page has arrived. */
 @Composable
-private fun playlistMeta(subtitle: String?, credit: String, count: Int, more: Boolean): String {
-    val given = subtitle?.takeIf { it.isNotBlank() && it != credit }
-    if (given != null) return given
-    if (count > 0 && !more) return pluralStringResource(R.plurals.ui_playlist_videos, count, count)
-    return ""
+private fun playlistMeta(owner: String, totalSeconds: Long, count: Int, more: Boolean): String {
+    val parts = listOfNotNull(
+        owner.takeIf { it.isNotBlank() },
+        if (count > 0) pluralStringResource(R.plurals.ui_playlist_videos, count, count) else null,
+        if (!more) mediaLengthLabel(totalSeconds) else null,
+    )
+    return parts.joinToString(" · ")
+}
+
+/** Flow's `mediaLengthLabel`: "2 hr 5 min" or "38 min"; nothing under a minute. */
+@Composable
+private fun mediaLengthLabel(totalSeconds: Long): String? {
+    val hours = (totalSeconds / 3600).toInt()
+    val minutes = ((totalSeconds % 3600) / 60).toInt()
+    return when {
+        hours > 0 -> stringResource(R.string.ui_duration_hours_minutes, hours, minutes)
+        minutes > 0 -> pluralStringResource(R.plurals.ui_duration_minutes, minutes, minutes)
+        else -> null
+    }
 }
 
 /**
  * BitChord's release header: a 16:9 cover the width of the page, inside the side
- * padding, then the title, credit and meta, then Shuffle and a labelled Play pill.
+ * padding, then Flow's title block, then Shuffle and a labelled Play pill.
  */
 @Composable
 private fun ReleaseHeader(
@@ -232,6 +253,7 @@ private fun ReleaseHeader(
     credit: String,
     channelUrl: String?,
     meta: String,
+    description: String,
     palette: ArtworkPalette,
     showActions: Boolean,
     onPlay: () -> Unit,
@@ -240,7 +262,6 @@ private fun ReleaseHeader(
     val openChannel = LocalChannelOpener.current
     Column(
         Modifier.fillMaxWidth().padding(top = topBarHeight(), bottom = 18.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             Modifier
@@ -264,38 +285,39 @@ private fun ReleaseHeader(
             text = title,
             style = MaterialTheme.typography.headlineMedium,
             color = palette.onBackground,
-            textAlign = TextAlign.Center,
+            textAlign = TextAlign.Start,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = HeaderGutter),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter),
         )
-        if (credit.isNotBlank()) {
-            Spacer(Modifier.height(2.dp))
+        if (meta.isNotBlank()) {
+            Spacer(Modifier.height(12.dp))
             Text(
-                text = credit,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal, fontSize = 19.sp),
+                text = meta,
+                style = MaterialTheme.typography.bodyMedium,
                 color = palette.onBackgroundVariant,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Start,
                 modifier = Modifier
-                    .padding(horizontal = HeaderGutter)
+                    .padding(horizontal = PageGutter)
                     .then(
-                        if (channelUrl == null) Modifier
+                        if (channelUrl == null || credit.isBlank()) Modifier
                         else Modifier.clip(RoundedCornerShape(6.dp)).pressable { openChannel(channelUrl) },
                     ),
             )
         }
-        if (meta.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
+        if (description.isNotBlank()) {
+            Spacer(Modifier.height(12.dp))
+            var expanded by rememberSaveable(description) { mutableStateOf(false) }
             Text(
-                text = meta,
-                style = MaterialTheme.typography.labelMedium,
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
                 color = palette.onBackgroundVariant,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
+                textAlign = TextAlign.Start,
+                maxLines = if (expanded) Int.MAX_VALUE else DescriptionCollapsedLines,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = HeaderGutter),
+                modifier = Modifier
+                    .padding(horizontal = PageGutter)
+                    .clickable { expanded = !expanded },
             )
         }
         if (showActions) {

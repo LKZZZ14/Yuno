@@ -40,7 +40,12 @@ data class FeedPage(
     val next: String?,
     val chips: List<FeedChip> = emptyList(),
     val filters: List<ChannelFilterGroup> = emptyList(),
+    /** A playlist's first page only. Flow's `VideoPlaylistPage` owner and description. */
+    val playlistHeader: PlaylistHeaderInfo? = null,
 )
+
+/** The playlist header Flow reads off the browse: the owner, and the description when YouTube sent one. */
+data class PlaylistHeaderInfo(val owner: String?, val description: String)
 
 /**
  * One of Home's category chips ("All", "Music", "Gaming", "Recently uploaded"…), titled as
@@ -549,8 +554,43 @@ object InnerTube {
     /** A playlist's videos; anonymous when signed out, so a channel's public playlists open too. */
     suspend fun playlist(id: String, next: String? = null): FeedPage = withContext(Dispatchers.IO) {
         val body = if (next != null) JSONObject().put("continuation", next) else JSONObject().put("browseId", "VL$id")
-        parseFeed(postAny("browse", body))
+        val root = postAny("browse", body)
+        val page = parseFeed(root)
+        if (next != null) page else page.copy(playlistHeader = parsePlaylistHeader(root))
     }
+
+    /**
+     * Flow's `toVideoPlaylistPage` header: the owner from `pageHeaderViewModel`'s avatar stack
+     * (or the older `playlistHeaderRenderer`), and the description from
+     * `descriptionPreviewViewModel`, or the sidebar when that is what arrived.
+     */
+    internal fun parsePlaylistHeader(root: JSONObject): PlaylistHeaderInfo {
+        val pageHeader = root.findObject("pageHeaderViewModel")
+        val legacy = root.findObject("playlistHeaderRenderer")
+        val sidebar = root.findObject("playlistSidebarPrimaryInfoRenderer")
+        val owner = pageHeader?.playlistHeaderOwner() ?: legacy?.playlistLegacyOwner()
+        val description = pageHeader
+            ?.optJSONObject("description")
+            ?.optJSONObject("descriptionPreviewViewModel")
+            ?.text("description")
+            ?: sidebar?.text("description")
+        return PlaylistHeaderInfo(owner, description?.trim().orEmpty())
+    }
+
+    /** "by Name" in the header's avatar stack. From Flow's `headerOwner`. */
+    private fun JSONObject.playlistHeaderOwner(): String? {
+        val metadata = optJSONObject("metadata") ?: return null
+        var name: String? = null
+        metadata.walk { key, obj ->
+            if (name != null || key != "avatarStackViewModel") return@walk
+            name = obj.text("text")?.removePrefix("by ")?.trim()?.ifBlank { null }
+        }
+        return name
+    }
+
+    /** The older header's `ownerText`. From Flow's `legacyOwner`. */
+    private fun JSONObject.playlistLegacyOwner(): String? =
+        text("ownerText")?.trim()?.ifBlank { null }
 
     suspend fun channelAvatarUrl(channelId: String): String? = withContext(Dispatchers.IO) {
         val root = postAny("browse", JSONObject().put("browseId", channelId))

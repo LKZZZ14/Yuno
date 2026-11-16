@@ -203,7 +203,7 @@ class ChannelState(val url: String, private val scope: CoroutineScope) {
     fun openSearch() { searchOpen = true }
 
     /** Item grids can be rows or a grid. Home, Posts and About keep their own layout. Shorts stays a grid. */
-    var gridView by mutableStateOf(false)
+    var gridView by mutableStateOf(true)
         private set
 
     fun toggleGrid() { gridView = !gridView }

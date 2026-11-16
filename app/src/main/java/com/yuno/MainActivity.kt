@@ -558,7 +558,7 @@ fun YunoApp() {
                         pageRoute.ref,
                         playlistFeeds.getOrPut(pageRoute.ref.id) { lib.playlistFeed(pageRoute.ref.id) },
                         contentPadding,
-                        grid = playlistGrid[pageRoute.ref.id] == true,
+                        grid = playlistGrid[pageRoute.ref.id] != false,
                         onOpen = { videos, index -> player.openList(videos, index) },
                         onShuffle = { player.openList(it, shuffle = true) },
                         channelAvatarSeed = lib.channels.associate { it.id to it.avatar },
@@ -608,13 +608,18 @@ fun YunoApp() {
             ) {
                 if (channelLayout) LayoutAction(channel!!.gridView) { channel.toggleGrid() }
                 if (route is AppRoute.Playlist) {
-                    val grid = playlistGrid[route.ref.id] == true
+                    val grid = playlistGrid[route.ref.id] != false
                     LayoutAction(grid) { playlistGrid[route.ref.id] = !grid }
                 }
-                if (route is AppRoute.Channel) ShareAction {
+                if (route is AppRoute.Channel || route is AppRoute.Playlist) ShareAction {
+                    val link = when (route) {
+                        is AppRoute.Channel -> route.url
+                        is AppRoute.Playlist -> "https://www.youtube.com/playlist?list=${route.ref.id}"
+                        else -> ""
+                    }
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, route.url)
+                        putExtra(Intent.EXTRA_TEXT, link)
                     }
                     shareContext.startActivity(Intent.createChooser(send, null))
                 }

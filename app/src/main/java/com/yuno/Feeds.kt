@@ -78,6 +78,12 @@ class FeedState(
     /** The chip whose feed is shown; null = the plain feed (the chip without a token, "All"). */
     var chip by mutableStateOf<FeedChip?>(null)
         private set
+    /** A playlist's owner, from the first page's header. */
+    var playlistOwner by mutableStateOf<String?>(null)
+        private set
+    /** A playlist's description, from the first page's header. Empty when YouTube sent none. */
+    var playlistDescription by mutableStateOf("")
+        private set
     private var next: String? = null
     private var loaded = false
     /** When the first page shown last landed (elapsedRealtime); 0 before. */
@@ -145,6 +151,10 @@ class FeedState(
                     }
                     // A continuation of a chosen filter often has no chip bar. Keep the one already shown.
                     if (pick == null || it.filters.isNotEmpty()) filters = it.filters
+                    it.playlistHeader?.let { header ->
+                        playlistOwner = header.owner
+                        playlistDescription = header.description
+                    }
                     it.videos.take(prefetchTop).forEach { v -> StreamCache.prefetch(v.id) }
                 }
                 .onFailure { error = friendly(it) }

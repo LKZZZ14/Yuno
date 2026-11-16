@@ -204,7 +204,7 @@ fun ChannelSkeletons() {
             ChannelHeaderBone()
             ChannelTabBone()
             Spacer(Modifier.height(PageGutter))
-            repeat(4) { ChannelVideoRowBone() }
+            repeat(3) { ChannelVideoCardBone() }
         }
     }
 }
