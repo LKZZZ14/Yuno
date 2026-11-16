@@ -38,6 +38,7 @@ On an upstream merge, ask only if that update **conflicts with or rewrites** one
 - **Keep** — move the line under **Always keep**.
 - **Let Skipii replace it** — drop the line and follow upstream for that spot.
 
+- Playlist pages use BitChord's release header (`PlaylistPage.kt`): the page is the artwork's colour, the cover is a 16:9 thumbnail the width of the page inside `PageGutter`, then the centred title, the channel credit and the count, then a white Play pill and a glass Shuffle pill, each half of the page width inside `PageGutter`. Play starts the queue at the tapped video; Shuffle plays a shuffled copy. Videos under that are the channel list rows, or the home card when the grid is on. The top bar's `LayoutAction` switches them. Pull to refresh stays the circular indicator.
 - Loading skeletons (`Skeleton.kt`) on feeds, the channel page, and comments. Channel placeholders match the tab they stand in for: the opening page is the header, the tab row, a `PageGutter`, then the 168dp video rows; Videos and Live stay those rows, or the home card when the grid is on; Shorts is the 160dp grid with the title under the poster and the 12dp gaps; Playlists, Shows and Podcasts stay the 142dp rows, or the inset card in the grid; Posts keep the 12dp gap above each one. Spinners stay for playback, sign-in, and posting.
 - Settings has no developer card: no "Made by @…", "Come say hi", or social links (`Settings.kt`).
 - Liquid glass stays on across launches (`LiquidGlassSetting.init` in `YunoApplication`).

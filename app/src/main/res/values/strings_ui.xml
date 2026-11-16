@@ -110,6 +110,12 @@
     <string name="ui_playlists">Playlists</string>
     <string name="ui_playlist_empty_title">Nothing here yet</string>
     <string name="ui_playlist_empty_body">Videos you add to this playlist will show up here.</string>
+    <string name="ui_play">Play</string>
+    <string name="ui_shuffle">Shuffle</string>
+    <plurals name="ui_playlist_videos">
+        <item quantity="one">%d video</item>
+        <item quantity="other">%d videos</item>
+    </plurals>
 
     <!-- ── Search ─────────────────────────────────────────────────────────── -->
     <!-- Page title (large header). -->

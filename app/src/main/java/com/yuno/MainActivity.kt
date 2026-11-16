@@ -207,6 +207,7 @@ fun YunoApp() {
     val libraryPull = remember { BarPullRefreshState() }
     val channelStates = remember { mutableMapOf<String, ChannelState>() }
     val playlistFeeds = remember { mutableMapOf<String, FeedState>() }
+    val playlistGrid = remember { mutableStateMapOf<String, Boolean>() }
     val pageStates = rememberSaveableStateHolder()
     val pageKeysSeen = remember { mutableSetOf<String>() }
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
@@ -557,8 +558,11 @@ fun YunoApp() {
                         pageRoute.ref,
                         playlistFeeds.getOrPut(pageRoute.ref.id) { lib.playlistFeed(pageRoute.ref.id) },
                         contentPadding,
-                        onOpen = player::open,
+                        grid = playlistGrid[pageRoute.ref.id] == true,
+                        onOpen = { videos, index -> player.openList(videos, index) },
+                        onShuffle = { player.openList(it, shuffle = true) },
                         channelAvatarSeed = lib.channels.associate { it.id to it.avatar },
+                        onFootColor = { channelFoot = it },
                     )
                     is AppRoute.Channel -> ChannelScreen(
                         channelStates.getOrPut(pageRoute.url) { ChannelState(pageRoute.url, scope) },
@@ -603,6 +607,10 @@ fun YunoApp() {
                 },
             ) {
                 if (channelLayout) LayoutAction(channel!!.gridView) { channel.toggleGrid() }
+                if (route is AppRoute.Playlist) {
+                    val grid = playlistGrid[route.ref.id] == true
+                    LayoutAction(grid) { playlistGrid[route.ref.id] = !grid }
+                }
                 if (route is AppRoute.Channel) ShareAction {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
@@ -643,7 +651,11 @@ fun YunoApp() {
         TopChromeLayer(topChrome, Modifier.align(Alignment.TopCenter).fillMaxWidth())
 
         // Ledgii's bottom vignette
-        val pageColor = if (navigator.visibleRoute() is AppRoute.Channel) channelFoot ?: c.background else c.background
+        val pageColor = if (navigator.visibleRoute() is AppRoute.Channel || navigator.visibleRoute() is AppRoute.Playlist) {
+            channelFoot ?: c.background
+        } else {
+            c.background
+        }
         val vignette = remember(pageColor) { vignetteBrush(pageColor, opaqueAtTop = false) }
         Box(
             Modifier

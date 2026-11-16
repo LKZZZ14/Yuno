@@ -174,6 +174,9 @@ class PlayerState(private val scope: CoroutineScope) {
     private var loadJob: Job? = null
     /** A video picked before the service connection finished; started on connect. */
     private var pendingStart: VideoItem? = null
+    /** A playlist picked before the connection finished, with the row it should start on. */
+    private var pendingList: List<VideoItem>? = null
+    private var pendingIndex = 0
 
     // ── Queue ──
     // The player's playlist is always [current, ...queue]: opening a video swaps the
@@ -189,6 +192,48 @@ class PlayerState(private val scope: CoroutineScope) {
         if (current?.id == item.id && error == null) return
         known[item.id] = item
         show(item, startPlayback = true)
+    }
+
+    /**
+     * Plays [items] as one queue, starting at [start]. [shuffle] reorders a copy first and
+     * starts at the new front. The list on screen is left as it is.
+     */
+    fun openList(items: List<VideoItem>, start: Int = 0, shuffle: Boolean = false) {
+        val order = items.filter { it.id.isNotBlank() }.let { if (shuffle) it.shuffled() else it }
+        if (order.isEmpty()) return
+        val index = if (shuffle) 0 else start.coerceIn(0, order.lastIndex)
+        order.forEach { known[it.id] = it }
+        expanded = true
+        val player = controller
+        if (player == null) {
+            pendingList = order
+            pendingIndex = index
+            pendingStart = null
+            show(order[index], startPlayback = false)
+            return
+        }
+        startList(player, order, index)
+    }
+
+    private fun startList(player: MediaController, order: List<VideoItem>, index: Int) {
+        SavedSession.resumeSaving()
+        Net.prewarmMediaConnection()
+        val item = order[index]
+        if (current != null && current?.id != item.id) {
+            blankUntilFrame = true
+            player.pause()
+        }
+        val position = ResumeStore.startPosition(item.id)
+        swapping = true
+        try {
+            player.setMediaItems(order.map { mediaItemFor(it) }, index, position)
+        } finally {
+            swapping = false
+        }
+        player.prepare()
+        player.play()
+        show(item, startPlayback = false)
+        rebuildQueue()
     }
 
     /**
@@ -824,6 +869,13 @@ class PlayerState(private val scope: CoroutineScope) {
         syncFromPlayer()
         applyVideoTrack()
         controller?.videoSize?.let(::takeVideoSize)
+        pendingList?.let { list ->
+            val index = pendingIndex
+            pendingList = null
+            val player = controller ?: return
+            startList(player, list, index)
+            return
+        }
         pendingStart?.let { pendingStart = null; startPlayback(it); return }
         val player = controller ?: return
         if (player.mediaItemCount == 0 && current == null) { restoreSession(player); return }

@@ -497,42 +497,6 @@ private fun PlaylistTile(playlist: PlaylistRef, modifier: Modifier, onClick: () 
     }
 }
 
-/** A playlist's videos (Watch later, Liked, or the user's own). */
-@Composable
-fun PlaylistScreen(
-    playlist: PlaylistRef,
-    feed: FeedState,
-    contentPadding: PaddingValues,
-    onOpen: (VideoItem) -> Unit,
-    channelAvatarSeed: Map<String, String?> = emptyMap(),
-) {
-    LaunchedEffect(playlist.id) { feed.ensureLoaded() }
-    val avatarSeed = remember(channelAvatarSeed) { channelAvatarSeed }
-    val listState = rememberLazyListState()
-    val top = pageBodyTop()
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Box(Modifier.fillMaxSize()) {
-        if (feed.videos.isEmpty() && !feed.loading && feed.error == null && !feed.hasMore) {
-            Column(Modifier.fillMaxSize().padding(contentPadding.withTop(top))) {
-                LargePageTitle(playlist.title, barAligned = false)
-                EmptyLine(stringResource(R.string.ui_playlist_empty_body))
-            }
-        } else {
-            FeedList(
-                feed,
-                contentPadding.withTop(top),
-                onOpen,
-                header = { item(key = "page-title") { LargePageTitle(playlist.title, barAligned = false) } },
-                indicatorTop = topBarHeight(),
-                listState = listState,
-                channelAvatarSeed = avatarSeed,
-            )
-        }
-        PageTopFade(listState)
-        }
-    }
-}
-
 @Composable
 private fun TextLink(text: String, onClick: () -> Unit) {
     Text(
