@@ -474,7 +474,15 @@ fun PageTopBar(
                 ) { accessory() }
                 Spacer(Modifier.width(AccessoryGap))
             }
-            beside()
+            // The update chip keeps the same gap the search field uses before this pill.
+            // An empty beside (no update) adds none, so the actions stay on the gutter.
+            Box(Modifier.layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints.copy(minWidth = 0))
+                val gap = if (placeable.width > 0) AccessoryGap.roundToPx() else 0
+                layout(placeable.width + gap, placeable.height) {
+                    placeable.placeRelative(0, 0)
+                }
+            }) { beside() }
             PageActions(content = actions)
         }
     }
