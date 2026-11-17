@@ -193,6 +193,10 @@ fun PlayerScreen(
         ramp(p, StatusBlackFromUp, StatusBlackEnd)
     }
     val statusBarPx = with(LocalDensity.current) { top.roundToPx() }
+    val stageHeightPx = with(LocalDensity.current) {
+        (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx() / state.stageAspect.coerceAtLeast(0.5f)).roundToInt()
+    }
+    BindVideoTopPoster(item.id, item.thumbnail, statusBarPx, stageHeightPx)
     LaunchedEffect(Unit) {
         VideoTopSampler.start()
         snapshotFlow { statusScrimAlpha() > 0.5f }.collect { StatusBarOverVideo.on = it }
@@ -645,7 +649,7 @@ private fun stageMorph(
     if (motion.isClosing) {
         if (!anchor.snapped) {
             anchor.snapped = true
-            val picture = pictureNow(anchor, stageScreen, stageOnScreen, size, card, cardRadius, fullRadius, p)
+            val picture = pictureNow(anchor, origin, stageOnScreen, size, card, cardRadius, fullRadius, p)
             anchor.handoff = picture.first
             anchor.handoffRadius = picture.second
             anchor.handoffP = p.coerceAtLeast(0.001f)
@@ -662,21 +666,22 @@ private fun stageMorph(
     }
 
     anchor.snapped = false
-    if (anchor.handoff != null && p < 0.999f) {
-        val from = anchor.handoff ?: return null
-        val t = ((p - anchor.handoffP) / (1f - anchor.handoffP).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
-        return placeOn(stageScreen, size, lerpRect(from, stageOnScreen, t), lerpF(anchor.handoffRadius, fullRadius, t))
-    }
     anchor.handoff = null
     if (p >= 0.999f) return null
-    if (card != null) return morphTo(stageScreen, size, card, cardRadius, fullRadius, p)
+    if (card != null) {
+        // Straight line from the thumbnail to where the stage sits fully open.
+        // Lerping against the sheet's moving layout bows the picture downward, then back up.
+        val openStage = Rect(origin, Size(size.width, size.height))
+        val t = p.coerceIn(0f, 1f)
+        return placeOn(stageScreen, size, lerpRect(card, openStage, t), lerpF(cardRadius, fullRadius, t))
+    }
     return null
 }
 
 /** The picture's on-screen rect before a dismiss starts, so the path does not jump. */
 private fun pictureNow(
     anchor: StageAnchor,
-    stageScreen: Offset,
+    origin: Offset,
     stageOnScreen: Rect,
     size: Size,
     card: Rect?,
@@ -690,7 +695,9 @@ private fun pictureNow(
         return lerpRect(held, stageOnScreen, t) to lerpF(anchor.handoffRadius, fullRadius, t)
     }
     if (card != null) {
-        return videoScreenRect(stageScreen, size, card, p) to lerpF(cardRadius, fullRadius, p.coerceIn(0f, 1f))
+        val openStage = Rect(origin, Size(size.width, size.height))
+        val t = p.coerceIn(0f, 1f)
+        return lerpRect(card, openStage, t) to lerpF(cardRadius, fullRadius, t)
     }
     return stageOnScreen to fullRadius
 }
@@ -739,13 +746,6 @@ private fun placeOn(stageScreen: Offset, size: Size, screenRect: Rect, radius: F
         stageRadius = radius,
     )
     return StageMorph(geometry.videoFrame(size, 0f), radius)
-}
-
-private fun videoScreenRect(stageScreen: Offset, size: Size, source: Rect, p: Float): Rect {
-    val frame = morphTo(stageScreen, size, source, 0f, 0f, p).frame
-    val top = stageScreen + frame.offset + Offset(frame.window.left * frame.scale, frame.window.top * frame.scale)
-    val bottom = stageScreen + frame.offset + Offset(frame.window.right * frame.scale, frame.window.bottom * frame.scale)
-    return Rect(top, bottom)
 }
 
 /** How far a swipe up on the open video travels before it goes fullscreen on release. */

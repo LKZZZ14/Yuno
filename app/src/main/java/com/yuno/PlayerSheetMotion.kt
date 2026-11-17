@@ -156,30 +156,44 @@ class PlayerSheetMotion(
         if ((System.nanoTime() - sheetSampleNanos) / 1e6f < SHEET_VELOCITY_FRESH_MS) sheetVelocity else 0f
 
     fun open() {
-        if (shown()) {
-            if (isClosing && holding) {
-                settle?.cancel()
-                reopening()
-                val from = held
-                settle = scope.launch {
-                    slide(from = from, to = 0f)
-                    arrived()
-                }
+        val fromCard = dock.launchFrom != null
+        // Settled full player. A new video just switches; the sheet stays where it is.
+        if (shown() && !isClosing && !holding && !fromCard) return
+        // Finger is already dragging the sheet closed, and this isn't a new thumbnail.
+        if (shown() && isClosing && holding && !fromCard) {
+            settle?.cancel()
+            reopening()
+            val from = held
+            settle = scope.launch {
+                slide(from = from, to = 0f)
+                arrived()
             }
             return
         }
         settle?.cancel()
+        val wasUp = shown()
         isClosing = false
+        if (wasUp) reopening()
         val travel = travel()
-        held = travel
-        dock.sheetUp = true
-        dock.fadeArmed = false
-        SharedVideoTexture.captureFrame()
-        setShown(true)
-        settle = scope.launch {
-            withTimeoutOrNull(LAYOUT_WAIT_MS) { snapshotFlow { laidOut }.first { it } }
-            slide(from = if (holding) held else travel(), to = 0f)
-            arrived()
+        // A thumbnail open always starts on that picture, even if a close was underway.
+        if (!wasUp || fromCard) {
+            held = travel
+            dock.sheetUp = true
+            dock.fadeArmed = false
+            SharedVideoTexture.captureFrame()
+            setShown(true)
+            settle = scope.launch {
+                withTimeoutOrNull(LAYOUT_WAIT_MS) { snapshotFlow { laidOut }.first { it } }
+                slide(from = travel(), to = 0f)
+                arrived()
+            }
+        } else {
+            val from = position().takeUnless { it.isNaN() } ?: 0f
+            held = from
+            settle = scope.launch {
+                slide(from = from, to = 0f)
+                arrived()
+            }
         }
     }
 

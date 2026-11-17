@@ -10,6 +10,18 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+![Yuno](https://github.com/danielkanan/Yuno/raw/main/docs/banner.png?v=2)
+
+### New
+- Tapping a video opens the full player from that thumbnail. Minimising puts it in the bar, and tapping that same video opens it from the bar.
+
+### Improved
+- Going back from a video, Short, channel, or playlist returns you to the same spot. Search stays open behind the player.
+- The blur behind the status bar follows the video you just switched to.
+
+### Miscellaneous
+- Channel and playlist pages stay plain until you turn on Channel & playlist colors in Settings › Appearance.
+
 ## 1.1.0
 
 ![Yuno](https://github.com/danielkanan/Yuno/raw/main/docs/banner.png?v=2)

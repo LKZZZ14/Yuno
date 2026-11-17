@@ -8,6 +8,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -152,6 +153,13 @@ class PlayerState(private val scope: CoroutineScope) {
      * Expanding the mini player leaves it false.
      */
     var openingFromPage by mutableStateOf(false)
+
+    /** A different video was chosen. The shell plays the thumbnail open if the full player isn't already up. */
+    var pendingPageOpen by mutableStateOf(false)
+
+    /** Bumped on every expand request, so a tap still registers while the sheet is already open or closing. */
+    var openRequest by mutableIntStateOf(0)
+        private set
     /** Fullscreen: requested (button, swipe up; upright for a vertical video) or entered (rotation). */
     var fullscreen by mutableStateOf(false)
     /** Which bottom sheet is open over the player, if any. */
@@ -198,13 +206,27 @@ class PlayerState(private val scope: CoroutineScope) {
         private set
 
     fun open(item: VideoItem, expand: Boolean = true) {
+        val same = current?.id == item.id && error == null
         if (expand) {
-            if (!expanded) openingFromPage = true
+            // The video already in the bar just expands. A different one may grow from its thumbnail.
+            if (!same) pendingPageOpen = true
             expanded = true
+            openRequest++
         }
-        if (current?.id == item.id && error == null) return
+        if (same) return
         known[item.id] = item
         show(item, startPlayback = true)
+    }
+
+    /** The shell is actually running the thumbnail open, so the picture stays the poster until the frame. */
+    fun usePosterCover() {
+        if (!firstFrameRendered) coverWithPoster = true
+    }
+
+    fun takePageOpen(): Boolean {
+        val pending = pendingPageOpen
+        pendingPageOpen = false
+        return pending
     }
 
     /**
@@ -215,9 +237,15 @@ class PlayerState(private val scope: CoroutineScope) {
         val order = items.filter { it.id.isNotBlank() }.let { if (shuffle) it.shuffled() else it }
         if (order.isEmpty()) return
         val index = if (shuffle) 0 else start.coerceIn(0, order.lastIndex)
+        if (!shuffle && current?.id == order[index].id && error == null) {
+            expanded = true
+            openRequest++
+            return
+        }
         order.forEach { known[it.id] = it }
-        if (!expanded) openingFromPage = true
+        pendingPageOpen = true
         expanded = true
+        openRequest++
         val player = controller
         if (player == null) {
             pendingList = order
@@ -258,7 +286,7 @@ class PlayerState(private val scope: CoroutineScope) {
     private var openedAt = 0L
 
     private fun show(item: VideoItem, startPlayback: Boolean) {
-        if (openingFromPage && current?.id != item.id) coverWithPoster = true
+        if (current?.id != item.id) VideoTopSampler.holdForPoster()
         // Drop the video already on screen before its replacement has anything to show.
         if (startPlayback && current != null && current?.id != item.id) {
             blankUntilFrame = true
@@ -858,6 +886,7 @@ class PlayerState(private val scope: CoroutineScope) {
         queue = emptyList()
         expanded = false
         openingFromPage = false
+        pendingPageOpen = false
         fullscreen = false
         sheet = null
         current = null
@@ -973,6 +1002,7 @@ class PlayerState(private val scope: CoroutineScope) {
             videoStale = false
             blankUntilFrame = false
             coverWithPoster = false
+            VideoTopSampler.releaseLive()
             suppressBufferingForVideoResume = false
         }
 

@@ -469,21 +469,25 @@ fun YunoApp() {
         shorts.mainBusy = { player.isBuffering }
     }
 
-    LaunchedEffect(player.expanded, player.current?.id) {
+    LaunchedEffect(player.openRequest, player.expanded, player.current?.id) {
         if (player.current == null) {
             player.expanded = false
             showNowPlaying = false
             player.openingFromPage = false
+            player.takePageOpen()
             VideoLaunch.clear()
             playerDock.finishLaunch()
-        } else if (player.expanded && !showNowPlaying) {
-            if (player.openingFromPage) {
-                val launch = VideoLaunch.take()
-                playerDock.armFromPage(launch?.first, launch?.second ?: 0f)
-            } else {
-                VideoLaunch.clear()
-                playerDock.finishLaunch()
-            }
+            return@LaunchedEffect
+        }
+        val page = player.takePageOpen()
+        val closing = playerSheetMotion.isClosing
+        val up = showNowPlaying
+        if (page && (!up || closing)) {
+            // Minimised, or still on the way down: grow from the thumbnail that was tapped.
+            player.openingFromPage = true
+            player.usePosterCover()
+            val launch = VideoLaunch.take()
+            playerDock.armFromPage(launch?.first, launch?.second ?: 0f)
             if (reduced) {
                 showNowPlaying = true
                 player.openingFromPage = false
@@ -491,7 +495,18 @@ fun YunoApp() {
             } else {
                 playerSheetMotion.open()
             }
-        } else if (!player.expanded && showNowPlaying && !playerSheetMotion.holding) {
+        } else if (player.expanded && !up) {
+            player.openingFromPage = false
+            VideoLaunch.clear()
+            playerDock.finishLaunch()
+            if (reduced) showNowPlaying = true else playerSheetMotion.open()
+        } else if (player.expanded && up && closing) {
+            // Same video, tapped while the sheet is still closing: come back up from the bar.
+            player.openingFromPage = false
+            VideoLaunch.clear()
+            playerDock.finishLaunch()
+            if (reduced) showNowPlaying = true else playerSheetMotion.open()
+        } else if (!player.expanded && up && !playerSheetMotion.holding) {
             if (reduced) showNowPlaying = false else playerSheetMotion.close()
         } else {
             VideoLaunch.clear()
