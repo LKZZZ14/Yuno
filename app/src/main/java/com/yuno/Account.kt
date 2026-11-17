@@ -562,9 +562,10 @@ object InnerTube {
     }
 
     /**
-     * Flow's `toSearchResultsPage`, read with this app's renderers: videos, channels, playlists and
-     * Shorts, in the feed's own order. A shelf's contents are flattened in so a "latest" strip is
-     * not dropped. The walk stays inside the search feed, not the whole response.
+     * Flow's `toSearchResultsPage`: videos, channels, playlists and shelves, in the feed's own
+     * order. A shelf stays a shelf. Walking into it would turn a Shorts strip into ordinary
+     * results, which is not the page YouTube (or Flow) arranged. The walk stays inside the
+     * search feed, not the whole response.
      */
     internal fun parseSearch(root: JSONObject): SearchPage {
         val hits = mutableListOf<SearchHit>()
@@ -575,10 +576,15 @@ object InnerTube {
             val page = parseFeed(root, includeLive = true)
             return SearchPage(page.videos.map { SearchHit.Video(it) }, page.next)
         }
-        entries.forEach { entry ->
-            entry.collectSearch(hits, seen) { token -> if (next == null) next = token }
+        entries.forEachIndexed { index, entry ->
+            entry.searchContinuation()?.let { if (next == null) next = it }
+            when (val hit = entry.toSearchHit(index)) {
+                null -> Unit
+                is SearchHit.Shelf -> hits += hit
+                else -> if (seen.add(hit.identityKey())) hits += hit
+            }
         }
-        return SearchPage(hits, next)
+        return SearchPage(hits.foldChannelLatest(), next)
     }
 
     private fun JSONObject.searchFeedEntries(): List<JSONObject> {
@@ -612,49 +618,146 @@ object InnerTube {
         return out
     }
 
-    private fun JSONObject.collectSearch(hits: MutableList<SearchHit>, seen: MutableSet<String>, token: (String) -> Unit) {
-        val keys = keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            when (val child = opt(key)) {
-                is JSONObject -> when (key) {
-                    "continuationItemRenderer", "continuationItemViewModel" ->
-                        child.collectStrings("token").firstOrNull()?.let(token)
-                    "videoRenderer", "gridVideoRenderer", "compactVideoRenderer" ->
-                        if (!isMembersOnly(child)) parseVideoRenderer(child)?.let { addSearchVideo(hits, seen, it, short = false) }
-                    "lockupViewModel" -> when (child.optString("contentType")) {
-                        "LOCKUP_CONTENT_TYPE_VIDEO" -> if (!isMembersOnly(child)) parseLockup(child)?.let { addSearchVideo(hits, seen, it, short = false) }
-                        else -> playlistOf(key, child)?.let { addSearchPlaylist(hits, seen, it) }
-                    }
-                    "playlistRenderer", "gridPlaylistRenderer" -> playlistOf(key, child)?.let { addSearchPlaylist(hits, seen, it) }
-                    "channelRenderer", "gridChannelRenderer" -> addSearchChannel(hits, seen, child)
-                    "shortsLockupViewModel", "reelItemRenderer" -> parseShortLockup(child)?.let { addSearchVideo(hits, seen, it, short = true) }
-                    else -> child.collectSearch(hits, seen, token)
-                }
-                is JSONArray -> for (i in 0 until child.length()) child.optJSONObject(i)?.collectSearch(hits, seen, token)
+    /** Flow's continuation token: the entry itself, not a token buried in some other renderer. */
+    private fun JSONObject.searchContinuation(): String? =
+        optJSONObject("continuationItemRenderer")
+            ?.optJSONObject("continuationEndpoint")
+            ?.optJSONObject("continuationCommand")
+            ?.optString("token")
+            ?.ifBlank { null }
+            ?: optJSONObject("continuationItemViewModel")?.collectStrings("token")?.firstOrNull()
+
+    /**
+     * One feed entry. From Flow's `toFeedShelf` then `toFeedItem`: a shelf container is a strip,
+     * and anything else is the one renderer it actually is. No walk into its children.
+     */
+    private fun JSONObject.toSearchHit(index: Int): SearchHit? {
+        optJSONObject("gridShelfViewModel")?.let { return it.toGridShelf(index) }
+        val shelf = optJSONObject("shelfRenderer")
+            ?: optJSONObject("reelShelfRenderer")
+            ?: optJSONObject("richShelfRenderer")
+        if (shelf != null) return shelf.toVideoShelf(index)
+        return parseSearchItem()
+    }
+
+    /** Flow's `toGridShelf`: a `gridShelfViewModel` is the Shorts strip. */
+    private fun JSONObject.toGridShelf(index: Int): SearchHit.Shelf? {
+        val videos = optJSONArray("contents").toShelfVideos()
+        val posts = if (videos.isEmpty()) parseCommunityPosts(this, "", null).posts else emptyList()
+        if (videos.isEmpty() && posts.isEmpty()) return null
+        val title = optJSONObject("header")
+            ?.optJSONObject("sectionHeaderViewModel")
+            ?.text("headline")
+            ?.takeIf { it.isNotBlank() }
+        val first = videos.firstOrNull()?.id ?: posts.first().id
+        return SearchHit.Shelf(
+            id = "grid:$index:${title.orEmpty()}:$first",
+            title = title,
+            kind = if (posts.isNotEmpty()) SearchShelfKind.POSTS else SearchShelfKind.SHORTS,
+            videos = videos,
+            posts = posts,
+            collapsedItemCount = jsonInt(opt("minCollapsedItemCount")),
+        )
+    }
+
+    /** Flow's `shelfItems`: a list shelf is videos, never a Shorts grid. */
+    private fun JSONObject.toVideoShelf(index: Int): SearchHit.Shelf? {
+        val videos = shelfItemNodes().toShelfVideos()
+        val posts = if (videos.isEmpty()) parseCommunityPosts(this, "", null).posts else emptyList()
+        if (videos.isEmpty() && posts.isEmpty()) return null
+        val title = text("title")?.takeIf { it.isNotBlank() }
+        val first = videos.firstOrNull()?.id ?: posts.first().id
+        return SearchHit.Shelf(
+            id = "shelf:$index:${title.orEmpty()}:$first",
+            title = title,
+            kind = if (posts.isNotEmpty()) SearchShelfKind.POSTS else SearchShelfKind.VIDEOS,
+            videos = videos,
+            posts = posts,
+            collapsedItemCount = optJSONObject("content")
+                ?.optJSONObject("verticalListRenderer")
+                ?.let { jsonInt(it.opt("collapsedItemCount")) },
+        )
+    }
+
+    /** Flow's `shelfItems` containers, in the same order. */
+    private fun JSONObject.shelfItemNodes(): JSONArray? {
+        optJSONArray("items")?.let { return it }
+        optJSONArray("contents")?.let { return it }
+        val content = optJSONObject("content") ?: return null
+        content.optJSONObject("verticalListRenderer")?.optJSONArray("items")?.let { return it }
+        return content.optJSONObject("horizontalListRenderer")?.optJSONArray("items")
+            ?: content.optJSONObject("expandedShelfContentsRenderer")?.optJSONArray("items")
+            ?: content.optJSONObject("gridRenderer")?.optJSONArray("items")
+    }
+
+    private fun JSONArray?.toShelfVideos(): List<VideoItem> {
+        if (this == null) return emptyList()
+        val out = LinkedHashMap<String, VideoItem>()
+        for (i in 0 until length()) {
+            val hit = optJSONObject(i)?.parseSearchItem() as? SearchHit.Video ?: continue
+            out.putIfAbsent(hit.item.id, hit.item)
+        }
+        return out.values.toList()
+    }
+
+    /** Flow's `toFeedItem`: the renderer on this node, or the one inside `richItemRenderer`. */
+    private fun JSONObject.parseSearchItem(): SearchHit? {
+        val content = optJSONObject("richItemRenderer")?.optJSONObject("content") ?: this
+        content.optJSONObject("videoRenderer")?.toSearchVideo()?.let { return it }
+        content.optJSONObject("gridVideoRenderer")?.toSearchVideo()?.let { return it }
+        content.optJSONObject("compactVideoRenderer")?.toSearchVideo()?.let { return it }
+        content.optJSONObject("lockupViewModel")?.let { lockup ->
+            when (lockup.optString("contentType")) {
+                "LOCKUP_CONTENT_TYPE_VIDEO" -> lockup.toSearchLockup()?.let { return it }
+                else -> playlistOf("lockupViewModel", lockup)?.let { return SearchHit.Playlist(it) }
             }
         }
+        content.optJSONObject("playlistRenderer")?.let { playlistOf("playlistRenderer", it) }?.let { return SearchHit.Playlist(it) }
+        content.optJSONObject("gridPlaylistRenderer")?.let { playlistOf("gridPlaylistRenderer", it) }?.let { return SearchHit.Playlist(it) }
+        content.optJSONObject("gridShowRenderer")?.let { playlistOf("gridShowRenderer", it) }?.let { return SearchHit.Playlist(it) }
+        content.optJSONObject("showRenderer")?.let { playlistOf("showRenderer", it) }?.let { return SearchHit.Playlist(it) }
+        content.optJSONObject("channelRenderer")?.toSearchChannel()?.let { return it }
+        content.optJSONObject("gridChannelRenderer")?.toSearchChannel()?.let { return it }
+        content.optJSONObject("shortsLockupViewModel")?.toSearchShort()?.let { return it }
+        content.optJSONObject("reelItemRenderer")?.toSearchShort()?.let { return it }
+        return null
     }
 
-    private fun addSearchVideo(hits: MutableList<SearchHit>, seen: MutableSet<String>, item: VideoItem, short: Boolean) {
-        if (seen.add("v:${item.id}")) hits += SearchHit.Video(item, short)
+    private fun JSONObject.toSearchVideo(): SearchHit.Video? {
+        if (isMembersOnly(this)) return null
+        return parseVideoRenderer(this)?.let { SearchHit.Video(it, short = false) }
     }
 
-    private fun addSearchPlaylist(hits: MutableList<SearchHit>, seen: MutableSet<String>, ref: PlaylistRef) {
-        if (seen.add("p:${ref.id}")) hits += SearchHit.Playlist(ref)
+    private fun JSONObject.toSearchLockup(): SearchHit.Video? {
+        if (isMembersOnly(this)) return null
+        return parseLockup(this)?.let { SearchHit.Video(it, short = false) }
     }
 
-    private fun addSearchChannel(hits: MutableList<SearchHit>, seen: MutableSet<String>, obj: JSONObject) {
-        val id = obj.optString("channelId").takeIf { it.startsWith("UC") } ?: return
-        if (!seen.add("c:$id")) return
-        val handle = obj.text("shortBylineText")?.takeIf { it.startsWith("@") }
-        val meta = listOfNotNull(handle, obj.text("subscriberCountText"), obj.text("videoCountText"))
-            .joinToString(" · ")
-            .ifBlank { null }
-        hits += SearchHit.Channel(
-            ChannelRef(id, obj.text("title") ?: "", obj.thumbnails()?.lastOrNull()?.let(::absoluteUrl)),
+    private fun JSONObject.toSearchShort(): SearchHit.Video? =
+        parseShortLockup(this)?.let { SearchHit.Video(it, short = true) }
+
+    /**
+     * Flow's channel card. The two count fields are not reliably what their names say — a live
+     * channel puts the @handle under subscriberCountText — so each label is classified by its text.
+     */
+    private fun JSONObject.toSearchChannel(): SearchHit.Channel? {
+        val id = optString("channelId").takeIf { it.startsWith("UC") } ?: return null
+        val name = text("title")?.takeIf { it.isNotBlank() } ?: return null
+        val labels = listOfNotNull(text("subscriberCountText"), text("videoCountText"))
+        val handle = labels.firstOrNull { it.startsWith("@") }
+        val subscribers = labels.firstOrNull { !it.startsWith("@") && !it.contains("video", ignoreCase = true) }
+        val videoCount = labels.firstOrNull { it.contains("video", ignoreCase = true) }
+        val meta = listOfNotNull(handle, subscribers, videoCount).joinToString(" · ").ifBlank { null }
+        return SearchHit.Channel(
+            ChannelRef(id, name, thumbnails()?.lastOrNull()?.let(::absoluteUrl)),
             meta,
         )
+    }
+
+    private fun jsonInt(value: Any?): Int? = when (value) {
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull()
+        else -> null
     }
 
     /** A playlist's videos; anonymous when signed out, so a channel's public playlists open too. */

@@ -15,6 +15,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
@@ -33,18 +34,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.NorthWest
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -455,14 +461,20 @@ private fun SearchResults(
     LoadMore(list, hits.isNotEmpty() && hasMore, onMore)
     LazyColumn(state = list, contentPadding = contentPadding) {
         if (loading) items(4) { FeedSkeletons(1) }
-        items(hits.size, key = { hits[it].resultKey() }) { index ->
+        items(hits.size, key = { hits[it].identityKey() }) { index ->
             when (val hit = hits[index]) {
                 is SearchHit.Video -> if (hit.short) {
                     // A short that arrived inside an ordinary search opens with the shorts player.
                     VideoCard(hit.item, onClick = { onOpenShorts(ShortsList(listOf(hit.item), 0)) })
                 } else VideoCard(hit.item, onClick = { onOpen(hit.item) })
-                is SearchHit.Channel -> SearchChannelRow(hit) { onOpenChannel("https://www.youtube.com/channel/${hit.ref.id}") }
+                is SearchHit.Channel -> SearchChannelRow(hit, onOpen, onOpenChannel)
                 is SearchHit.Playlist -> SearchPlaylistCard(hit.ref) { onOpenPlaylist(hit.ref) }
+                is SearchHit.Shelf -> SearchShelfBlock(
+                    hit,
+                    showRuleAbove = hits.getOrNull(index - 1) !is SearchHit.Shelf,
+                    onOpen = onOpen,
+                    onOpenShorts = onOpenShorts,
+                )
             }
         }
         if (hasMore && hits.isNotEmpty()) item { FeedSkeletons(1) }
@@ -507,36 +519,207 @@ private fun SearchShorts(
 }
 
 /**
- * A channel in the results. The 12dp above the picture matches the 12dp below it,
- * the same inset as the channel line on a video card, and the row fills the width.
+ * Flow's channel block: the creator, then the "latest" shelf YouTube sent directly after the card.
+ * The picture row is 12dp above and below. A latest strip under it keeps 16dp beneath the posters.
  */
 @Composable
-private fun SearchChannelRow(hit: SearchHit.Channel, onClick: () -> Unit) {
+private fun SearchChannelRow(
+    hit: SearchHit.Channel,
+    onOpen: (VideoItem) -> Unit,
+    onOpenChannel: (String) -> Unit,
+) {
     val c = MaterialTheme.colorScheme
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .pressable(
-                pressedScale = 0.97f,
-                lift = true,
-                liftPadding = PaddingValues(horizontal = PageGutter),
-                onClick = onClick,
-            )
-            .padding(horizontal = PageGutter, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ChannelAvatar(hit.ref.avatar, hit.ref.name, size = 56)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            FadingTitle(
-                text = hit.ref.name,
-                style = TextStyle(fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 20.sp),
-                maxLines = 1,
-            )
-            hit.meta?.let {
-                Spacer(Modifier.height(1.dp))
-                Text(it, color = c.onSurfaceVariant, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val open = { onOpenChannel("https://www.youtube.com/channel/${hit.ref.id}") }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .pressable(
+                    pressedScale = 0.97f,
+                    lift = true,
+                    liftPadding = PaddingValues(horizontal = PageGutter),
+                    onClick = open,
+                )
+                .padding(horizontal = PageGutter, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ChannelAvatar(hit.ref.avatar, hit.ref.name, size = 56)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                FadingTitle(
+                    text = hit.ref.name,
+                    style = TextStyle(fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 20.sp),
+                    maxLines = 1,
+                )
+                hit.meta?.let {
+                    Spacer(Modifier.height(1.dp))
+                    Text(it, color = c.onSurfaceVariant, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
+        }
+        if (hit.latestVideos.isNotEmpty()) {
+            hit.latestTitle?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = PageGutter, vertical = 4.dp).pressable(onClick = open),
+                )
+            }
+            LazyRow(
+                contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = PageGutter),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(hit.latestVideos, key = { it.id }) { video ->
+                    Column(Modifier.width(168.dp).pressable(pressedScale = 0.97f) { onOpen(video) }) {
+                        Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = FeedVideoThumbRadius, videoId = video.id)
+                        Spacer(Modifier.height(6.dp))
+                        FadingTitle(
+                            text = video.title,
+                            style = TextStyle(fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 16.sp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Flow's `SearchShelf`. One rule above and one below. The rule above is left off when the row
+ * before this is also a shelf, so two strips do not draw two lines.
+ */
+@Composable
+private fun SearchShelfBlock(
+    shelf: SearchHit.Shelf,
+    showRuleAbove: Boolean,
+    onOpen: (VideoItem) -> Unit,
+    onOpenShorts: (ShortsList) -> Unit,
+) {
+    val c = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth()) {
+        if (showRuleAbove) HorizontalDivider(color = c.outlineVariant)
+        when (shelf.kind) {
+            SearchShelfKind.SHORTS -> {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = PageGutter, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(SfIcons.Shorts, contentDescription = null, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        shelf.title ?: stringResource(R.string.ui_shorts),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                LazyRow(
+                    contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = PageGutter),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    itemsIndexed(shelf.videos, key = { _, video -> video.id }) { index, video ->
+                        Column(Modifier.width(160.dp).pressable(pressedScale = 0.97f) { onOpenShorts(ShortsList(shelf.videos, index)) }) {
+                            Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(9f / 16f), radius = 16)
+                            Spacer(Modifier.height(8.dp))
+                            FadingTitle(
+                                text = video.title,
+                                style = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 18.sp),
+                            )
+                            if (video.views >= 0) {
+                                Text(viewsLine(video.views), style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+            SearchShelfKind.POSTS -> {
+                shelf.title?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = PageGutter, end = PageGutter, top = PageGutter, bottom = 8.dp),
+                    )
+                }
+                LazyRow(
+                    contentPadding = PaddingValues(
+                        start = PageGutter,
+                        end = PageGutter,
+                        top = if (shelf.title == null) PageGutter else 0.dp,
+                        bottom = PageGutter,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(shelf.posts, key = { it.id }) { post -> SearchPostCard(post) }
+                }
+            }
+            SearchShelfKind.VIDEOS -> {
+                shelf.title?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = PageGutter, end = PageGutter, top = PageGutter, bottom = 8.dp),
+                    )
+                } ?: Spacer(Modifier.height(PageGutter))
+                var expanded by rememberSaveable(shelf.id) { mutableStateOf(false) }
+                val collapsed = shelf.collapsedItemCount ?: shelf.videos.size
+                val shown = if (expanded) shelf.videos else shelf.videos.take(collapsed)
+                shown.forEach { video -> VideoCard(video, onClick = { onOpen(video) }) }
+                if (shelf.videos.size > collapsed) {
+                    TextButton(
+                        onClick = { expanded = !expanded },
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                    ) {
+                        Text(stringResource(if (expanded) R.string.ui_search_shelf_less else R.string.ui_search_shelf_more))
+                        Icon(
+                            if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.padding(start = 6.dp).size(18.dp),
+                        )
+                    }
+                }
+            }
+        }
+        HorizontalDivider(color = c.outlineVariant)
+    }
+}
+
+/** Flow's search post card: a fixed-width card in the posts strip, author line, text, and preview. */
+@Composable
+private fun SearchPostCard(post: CommunityPost) {
+    val c = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        Modifier.width(280.dp).clip(shape).border(1.dp, c.outlineVariant, shape).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChannelAvatar(post.avatar, post.author, size = 24)
+            Text(
+                post.author,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (post.ago.isNotBlank()) {
+                Text(post.ago, style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant, maxLines = 1)
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                post.text,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            post.image?.let { Thumbnail(it, Modifier.width(72.dp).aspectRatio(1f), radius = 8) }
         }
     }
 }
@@ -741,16 +924,27 @@ private fun emphasiseCompletion(text: String, query: String): AnnotatedString {
     }
 }
 
-private fun List<SearchHit>.watchFiltered(state: WatchState, watched: Set<String>): List<SearchHit> = when (state) {
-    WatchState.ANY -> this
-    WatchState.WATCHED -> filter { it !is SearchHit.Video || it.item.id in watched }
-    WatchState.UNWATCHED -> filter { it !is SearchHit.Video || it.item.id !in watched }
-}
-
-private fun SearchHit.resultKey(): String = when (this) {
-    is SearchHit.Video -> "v:${item.id}"
-    is SearchHit.Channel -> "c:${ref.id}"
-    is SearchHit.Playlist -> "p:${ref.id}"
+/**
+ * Flow's `withWatchState`. Watched is a list of videos: channels, playlists and a shelf with
+ * nothing left are dropped. Unwatched keeps those, and drops the videos already watched.
+ */
+private fun List<SearchHit>.watchFiltered(state: WatchState, watched: Set<String>): List<SearchHit> {
+    if (state == WatchState.ANY) return this
+    val keepWatched = state == WatchState.WATCHED
+    fun VideoItem.kept() = (id in watched) == keepWatched
+    return mapNotNull { hit ->
+        when (hit) {
+            is SearchHit.Video -> hit.takeIf { hit.item.kept() }
+            is SearchHit.Channel, is SearchHit.Playlist -> hit.takeUnless { keepWatched }
+            is SearchHit.Shelf -> when {
+                hit.kind == SearchShelfKind.POSTS -> hit.takeUnless { keepWatched }
+                else -> {
+                    val videos = hit.videos.filter { it.kept() }
+                    if (videos.isEmpty()) null else hit.copy(videos = videos)
+                }
+            }
+        }
+    }
 }
 
 private fun stubVideo(id: String) = VideoItem(id, "", "", null, null, null, 0, -1, null)

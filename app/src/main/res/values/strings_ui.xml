@@ -142,6 +142,8 @@
     <!-- Accessibility label of the X on a past search. -->
     <string name="ui_remove_search">Remove</string>
     <string name="ui_search_show_all">Show all</string>
+    <string name="ui_search_shelf_more">Show more</string>
+    <string name="ui_search_shelf_less">Show less</string>
     <string name="ui_search_fill">Put this in the search field</string>
     <string name="ui_search_filters">Filters</string>
     <string name="ui_search_apply">Apply</string>

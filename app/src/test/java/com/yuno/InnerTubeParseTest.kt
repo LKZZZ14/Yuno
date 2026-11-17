@@ -82,6 +82,22 @@ class InnerTubeParseTest {
         assertNotNull("search continuation", page.next)
     }
 
+    /** Flow keeps a Shorts strip as a shelf. Flattening it would turn All into a list of shorts. */
+    @Test fun searchKeepsShortsShelves() {
+        val page = InnerTube.parseSearch(fixture("search"))
+        val shelves = page.hits.filterIsInstance<SearchHit.Shelf>()
+        assertEquals(2, shelves.size)
+        assertTrue(shelves.all { it.kind == SearchShelfKind.SHORTS && it.videos.isNotEmpty() })
+        assertTrue(page.hits.none { it is SearchHit.Video && it.short })
+        assertTrue(page.hits.any { it is SearchHit.Channel })
+        assertTrue(page.hits.any { it is SearchHit.Playlist })
+        val shorts = page.hits.asShortsResults()
+        val shelfIds = shelves.flatMap { it.videos }.map { it.id }.toSet()
+        val shortIds = shorts.map { (it as SearchHit.Video).item.id }.toSet()
+        assertTrue(shortIds.containsAll(shelfIds))
+        assertTrue(shorts.all { it is SearchHit.Video && it.short })
+    }
+
     @Test fun searchResults() {
         val page = InnerTube.parseFeed(fixture("search"))
         assertTrue("got ${page.videos.size}", page.videos.size >= 10)

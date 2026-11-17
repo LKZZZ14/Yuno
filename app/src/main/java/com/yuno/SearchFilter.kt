@@ -89,11 +89,78 @@ private fun SearchFeature.toParam(): YouTubeSearchParams.Feature = when (this) {
     SearchFeature.PURCHASED -> YouTubeSearchParams.Feature.PURCHASED
 }
 
-/** One search result, in the order YouTube sent it. */
+/** A strip YouTube put between results. From Flow's `SearchShelfKind`. A grid shelf is Shorts. */
+enum class SearchShelfKind { SHORTS, VIDEOS, POSTS }
+
+/**
+ * One row of the search feed, in the order YouTube sent it. From Flow's `SearchResultItem`:
+ * a result, or a strip. A channel's "latest" videos ride on the channel, because YouTube
+ * sends that strip as the next shelf and Flow draws the two as one block.
+ */
 sealed interface SearchHit {
     data class Video(val item: VideoItem, val short: Boolean = false) : SearchHit
-    data class Channel(val ref: ChannelRef, val meta: String?) : SearchHit
+    data class Channel(
+        val ref: ChannelRef,
+        val meta: String?,
+        val latestTitle: String? = null,
+        val latestVideos: List<VideoItem> = emptyList(),
+    ) : SearchHit
     data class Playlist(val ref: PlaylistRef) : SearchHit
+    data class Shelf(
+        val id: String,
+        val title: String?,
+        val kind: SearchShelfKind,
+        val videos: List<VideoItem>,
+        val posts: List<CommunityPost> = emptyList(),
+        val collapsedItemCount: Int? = null,
+    ) : SearchHit
+}
+
+/** Flow's shelf id, position-qualified so two strips with the same title stay distinct. */
+fun SearchHit.identityKey(): String = when (this) {
+    is SearchHit.Video -> "v:${item.id}"
+    is SearchHit.Channel -> "c:${ref.id}"
+    is SearchHit.Playlist -> "p:${ref.id}"
+    is SearchHit.Shelf -> "shelf:$id"
+}
+
+/**
+ * Flow's fold of the videos strip that sits directly after a channel card.
+ * The strip does not also appear on its own.
+ */
+fun List<SearchHit>.foldChannelLatest(): List<SearchHit> {
+    val out = ArrayList<SearchHit>(size)
+    var index = 0
+    while (index < size) {
+        val hit = this[index]
+        val next = getOrNull(index + 1)
+        if (hit is SearchHit.Channel && next is SearchHit.Shelf && next.kind == SearchShelfKind.VIDEOS) {
+            out += hit.copy(latestTitle = next.title, latestVideos = next.videos)
+            index += 2
+        } else {
+            out += hit
+            index++
+        }
+    }
+    return out
+}
+
+/**
+ * Flow's `toShortsResults`. The Shorts chip's page is shelves of shorts; the grid wants
+ * one short each, and anything that is not a short shelf is left out. The first copy of a
+ * video wins, the way Flow's page de-duplicates.
+ */
+fun List<SearchHit>.asShortsResults(): List<SearchHit> {
+    val out = LinkedHashMap<String, SearchHit>()
+    for (hit in this) {
+        val videos = when (hit) {
+            is SearchHit.Video -> listOf(hit.item)
+            is SearchHit.Shelf -> if (hit.kind == SearchShelfKind.SHORTS) hit.videos else emptyList()
+            else -> emptyList()
+        }
+        for (video in videos) out.putIfAbsent(video.id, SearchHit.Video(video, short = true))
+    }
+    return out.values.toList()
 }
 
 data class SearchPage(val hits: List<SearchHit>, val next: String?)

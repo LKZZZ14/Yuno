@@ -647,8 +647,9 @@ class SearchState(private val scope: CoroutineScope) {
         job = scope.launch {
             val result = runCatching { InnerTube.search(q, params, token) }
             if (!applySearch(ticket, result) { page ->
-                    val seen = hits.mapTo(HashSet()) { it.key() }
-                    hits = hits + page.hits.filter { seen.add(it.key()) }
+                    val more = page.hits.presentedFor(filter.contentType)
+                    val seen = hits.mapTo(HashSet()) { it.identityKey() }
+                    hits = hits + more.filter { seen.add(it.identityKey()) }
                     next = page.next
                 }
             ) return@launch
@@ -676,7 +677,7 @@ class SearchState(private val scope: CoroutineScope) {
         job = scope.launch {
             val result = runCatching { InnerTube.search(q, params, null) }
             if (!applySearch(ticket, result) { page ->
-                    hits = page.hits
+                    hits = page.hits.presentedFor(filter.contentType)
                     next = page.next
                     error = null
                 }
@@ -703,11 +704,9 @@ class SearchState(private val scope: CoroutineScope) {
     }
 }
 
-private fun SearchHit.key(): String = when (this) {
-    is SearchHit.Video -> "v:${item.id}"
-    is SearchHit.Channel -> "c:${ref.id}"
-    is SearchHit.Playlist -> "p:${ref.id}"
-}
+/** The Shorts chip lays out single shorts. Every other chip keeps Flow's shelves and channel block. */
+private fun List<SearchHit>.presentedFor(type: ContentType): List<SearchHit> =
+    if (type == ContentType.SHORTS) asShortsResults() else this
 
 /** The search field, in the shared top bar. Focus and the keyboard live with the field. */
 @Composable

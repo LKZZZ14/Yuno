@@ -259,7 +259,7 @@ class ChannelState(val url: String, private val scope: CoroutineScope) {
     val shelves: List<ChannelShelf>
         get() = home?.shelves.orEmpty().filter { ShortsSetting.enabled || it.shorts.isEmpty() }
 
-    /**
+    /**sx7
      * The tabs this channel published, in YouTube's order, then About. Home only when it has
      * something on it, Shorts only while Shorts are on. Without the page, the uploads alone.
      */
