@@ -1364,13 +1364,13 @@ private fun ShortPage(shorts: ShortsState, page: Int, overlayBottom: Dp, barProg
             )
         }
         Box(Modifier.fillMaxSize().clipToBounds()) {
-            // Vertical shorts fill a phone's screen (a little cropped at the sides); wider ones fit its width.
+            // The short fits inside the screen. A smaller picture keeps black bars instead of being enlarged.
             Box(
                 Modifier
                     .padding(start = videoStart)
                     .width(videoWidth)
                     .fillMaxHeight()
-                    .aspectFit(aspect, cover = !wide && aspect < 0.7f)
+                    .aspectFit(aspect)
                     .onGloballyPositioned { shorts.videoRects[page] = Rect(it.positionInRoot(), it.size.toSize()) },
             ) {
                 AsyncImage(model = item.thumbnail, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())

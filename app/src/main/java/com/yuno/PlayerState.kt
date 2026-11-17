@@ -106,6 +106,7 @@ class PlayerState(private val scope: CoroutineScope) {
 
     /**
      * The portrait player's shape: the video's own, within [StageMinAspect]..[StageMaxAspect].
+     * Wider than 16:9 keeps the 16:9 frame and letterboxes.
      * Audio only keeps it too (Derek, 2026-10-14), so switching never moves the page.
      */
     val stageAspect: Float get() = videoAspect.coerceIn(StageMinAspect, StageMaxAspect).coerceAtLeast(stageFloor)

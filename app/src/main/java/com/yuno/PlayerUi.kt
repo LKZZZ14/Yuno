@@ -134,11 +134,11 @@ private val MiniGlassTitleTracking = 0.15.sp
 private val MiniGlassChannelSize = 12.sp
 private val MiniGlassChannelTracking = 0.35.sp
 /**
- * Portrait stage shape: tall videos can use up to 4:5; wide ones letterbox inside a 16:9 frame
- * (2.35:1 and wider no longer squash the whole player flat).
+ * Portrait stage shape: tall videos can use up to 4:5. Anything wider than 16:9 stays in that
+ * frame and letterboxes, so a short cinematic picture does not shrink the player.
  */
 internal const val StageMinAspect = 0.8f
-internal const val StageMaxAspect = 2.4f
+internal const val StageMaxAspect = 16f / 9f
 /**
  * The stage never takes more than this share of the window's height: in a short split-screen
  * pane a tall video would otherwise push the details (and half the video) off the bottom.
