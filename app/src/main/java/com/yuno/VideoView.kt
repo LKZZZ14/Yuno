@@ -757,9 +757,8 @@ fun VideoContent(
  * shown, on a tonal container the video's own shape. Every control sits exactly where the
  * video's overlay puts it (Derek, 2026-10-14): skips and play centred at the same sizes, the
  * times row and scrubber along the bottom, the skipped note at the top; only the look changes
- * (tonal buttons, primary play, thicker scrubber). The thumbnail sits underneath at the
- * stage's centred 16:9 window and shows through as it shrinks, so it lands as the mini-player,
- * which shows the thumbnail in audio only.
+ * (tonal buttons, primary play, thicker scrubber). The thumbnail fills the stage, with a
+ * light scrim so the controls stay readable on it.
  *
  * Switching from or to video happens in place: [cover] fades the whole stage over the picture,
  * and [gather] brings the controls together (skips slide out from behind the play button,
@@ -785,10 +784,17 @@ fun AudioOnlyStage(
             .graphicsLayer { alpha = cover().coerceIn(0f, 1f) }
             .pointerInput(Unit) { detectTapGestures { if (!currentInteractive) currentInactiveTap() } },
     ) {
-        Box(Modifier.fillMaxSize().aspectFit(16f / 9f)) {
-            Thumbnail(state.current?.thumbnail, Modifier.fillMaxSize(), radius = 0)
-        }
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = ramp(progress(), 0.25f, 0.85f) }.background(c.surfaceContainer))
+        Thumbnail(state.current?.thumbnail, Modifier.fillMaxSize(), radius = 0)
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = 0.45f),
+                    0.35f to Color.Black.copy(alpha = 0.12f),
+                    0.62f to Color.Black.copy(alpha = 0.12f),
+                    1f to Color.Black.copy(alpha = 0.62f),
+                ),
+            ),
+        )
         val error = state.error
         if (error != null) {
             ErrorPanel(error, state, onCollapse = {})
@@ -796,6 +802,17 @@ fun AudioOnlyStage(
         }
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = controlsAlpha() * gather().coerceIn(0f, 1f) }) {
             SkippedNote(state, Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
+            // The video's headphones button is under this stage, so the same control stays here.
+            OverlayTile(
+                stringResource(R.string.video_audio_only),
+                interactive,
+                36.dp,
+                filled = AudioOnly.enabled,
+                modifier = Modifier.align(Alignment.TopEnd).padding(10.dp),
+                onClick = { state.setAudioOnly(!AudioOnly.enabled) },
+            ) { ink ->
+                Icon(Icons.Outlined.Headphones, null, tint = ink, modifier = Modifier.size(18.dp))
+            }
             // Same row as the video's: 48 dp skips, 66 dp play, 30 dp apart.
             val gap = 30.dp
             val skip = 48.dp
@@ -838,10 +855,10 @@ fun AudioOnlyStage(
                         LiveChip(atEdge = true, enabled = false, onClick = {})
                         Spacer(Modifier.weight(1f))
                     } else {
-                        Text(formatDuration(scrubPreview ?: state.positionMs), color = c.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(formatDuration(scrubPreview ?: state.positionMs), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         Text(
                             " / " + formatDuration(state.durationMs),
-                            color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold,
                         )
                         if (state.live) {
                             Spacer(Modifier.width(10.dp))
@@ -859,8 +876,8 @@ fun AudioOnlyStage(
                     enabled = interactive && !lockedLive,
                     onPreview = { scrubPreview = it },
                     onSeek = { scrubPreview = null; state.seekTo(it) },
-                    track = c.surfaceContainerHighest,
-                    buffered = c.primary.copy(alpha = 0.3f),
+                    track = Color.White.copy(alpha = 0.35f),
+                    buffered = Color.White.copy(alpha = 0.55f),
                     played = c.primary,
                     trackHeight = 6.dp,
                     knob = 8.dp,

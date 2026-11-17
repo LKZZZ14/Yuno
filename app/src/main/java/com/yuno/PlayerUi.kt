@@ -186,20 +186,10 @@ fun PlayerScreen(
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var descriptionOpen by remember(item.id) { mutableStateOf(false) }
-    // Audio only (Derek, 2026-10-25): the open player has no video space at all — the stage
-    // folds away (the picture fading and lifting as its height closes) and unfolds for video.
-    // Only on the fully open player: swiping it down unfolds it again, so the thumbnail still
-    // lands in the mini-player.
-    val reduced = rememberReducedMotion()
-    val fold = remember { Animatable(if (AudioOnly.enabled) 1f else 0f) }
-    LaunchedEffect(AudioOnly.enabled) {
-        val target = if (AudioOnly.enabled) 1f else 0f
-        if (reduced) fold.snapTo(target) else fold.animateTo(target, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.0005f))
-    }
     // Live blur of the video top in the status-bar strip only.
     val statusScrimAlpha = {
         val p = progress()
-        ramp(p, StatusBlackFromUp, StatusBlackEnd) * (1f - fold.value)
+        ramp(p, StatusBlackFromUp, StatusBlackEnd)
     }
     val statusBarPx = with(LocalDensity.current) { top.roundToPx() }
     LaunchedEffect(Unit) {
@@ -243,7 +233,7 @@ fun PlayerScreen(
                 if (dock.offset() != null) dock.attached = true
             }) {
                 VideoStage(
-                    state, sheetMotion, dock, progress, fold, onCollapse, onFullscreen, interactive,
+                    state, sheetMotion, dock, progress, onCollapse, onFullscreen, interactive,
                     statusBarHeight = top,
                     statusScrimAlpha = statusScrimAlpha,
                 )
@@ -435,7 +425,6 @@ private fun VideoStage(
     sheetMotion: PlayerSheetMotion,
     dock: PlayerDock,
     progress: () -> Float,
-    fold: Animatable<Float, *>,
     onCollapse: () -> Unit,
     onFullscreen: () -> Unit,
     interactive: Boolean,
@@ -507,23 +496,13 @@ private fun VideoStage(
             }
         }
     }
-    val folded = { fold.value * ramp(progress(), 0.8f) }
     val density = LocalDensity.current
     // Where the stage sits with the sheet fully open. Kept off snapshot state:
     // writing it every placement recomposed the player mid-drag.
     val stageAnchor = remember { StageAnchor() }
+    // Audio only keeps this slot. The picture becomes the audio stage inside it,
+    // instead of the slot closing and leaving a gap where the video was.
     val stage = Modifier
-        .graphicsLayer { clip = folded() > 0.001f }
-        .layout { measurable, constraints ->
-            val placeable = measurable.measure(constraints)
-            val k = 1f - folded()
-            layout(placeable.width, (placeable.height * k).roundToInt()) {
-                placeable.placeWithLayer(0, 0) {
-                    alpha = ramp(k, 0.1f, 0.85f)
-                    translationY = -placeable.height * 0.3f * (1f - k)
-                }
-            }
-        }
         .padding(horizontal = StageSideGap)
         .fillMaxWidth()
         .aspectRatio(aspect)
@@ -987,7 +966,7 @@ fun MiniPlayer(
                 Box(Modifier.fillMaxSize().aspectFit(state.stageAspect, cover = true)) {
                     if (state.blankUntilFrame) {
                         Box(Modifier.fillMaxSize().background(Color.Black))
-                    } else if (HeldFrame.image != null && !state.hidesStaleVideo) {
+                    } else if (HeldFrame.image != null && !state.hidesStaleVideo && !AudioOnly.enabled) {
                         HeldFrameImage(Modifier.fillMaxSize().aspectFit(state.videoAspect))
                     } else {
                         Thumbnail(item.thumbnail, Modifier.fillMaxSize().aspectFit(state.videoAspect), radius = 0)
