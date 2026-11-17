@@ -410,8 +410,13 @@ fun ChannelScreen(
     onFootColor: (Color?) -> Unit = {},
 ) {
     val d = state.details
-    // The page is this colour from top to bottom, taken from the profile picture.
-    val palette = rememberArtworkPalette(d?.avatar ?: d?.banner)
+    // The page is the colour that shows up most in the profile picture and the banner,
+    // unless Settings › Appearance has channel colors turned off.
+    val tinted = ChannelColorSetting.enabled
+    val palette = rememberArtworkPalette(
+        if (tinted) d?.avatar else null,
+        if (tinted) d?.banner else null,
+    )
     SideEffect { onFootColor(palette.wash) }
     DisposableEffect(Unit) { onDispose { onFootColor(null) } }
 

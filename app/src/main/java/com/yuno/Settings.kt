@@ -407,6 +407,11 @@ private fun AppearanceBody(search: SettingsSearch) {
                 listOf("system", "light", "dark").indexOf(ThemeSettings.mode).coerceAtLeast(0),
             ) { ThemeSettings.chooseMode(listOf("system", "light", "dark")[it]) }
         }
+        val colorTitle = stringResource(R.string.settings_channel_colors)
+        val colorLine = stringResource(R.string.settings_channel_colors_line)
+        row(colorTitle, colorLine) {
+            ToggleRow(SfIcons.Palette, colorTitle, colorLine, ChannelColorSetting.enabled, onCheckedChange = ChannelColorSetting::set)
+        }
         if (isGlassSupported()) {
             val glassTitle = stringResource(R.string.settings_liquid_glass)
             val glassLine = stringResource(R.string.settings_liquid_glass_line)
