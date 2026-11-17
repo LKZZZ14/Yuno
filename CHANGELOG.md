@@ -10,6 +10,8 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+## 1.1.1
+
 ![Yuno](https://github.com/danielkanan/Yuno/raw/main/docs/banner.png?v=2)
 
 ### New
