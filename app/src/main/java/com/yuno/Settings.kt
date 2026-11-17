@@ -30,7 +30,6 @@ import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.DarkMode
-import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Notifications
@@ -275,11 +274,6 @@ private fun PlaybackBody(player: PlayerState, search: SettingsSearch) {
         val zoomLine = stringResource(if (FullscreenZoom.fill) R.string.settings_zoom_fill_on else R.string.settings_zoom_fill_off)
         row(zoomTitle, zoomLine, "pinch", "fullscreen") {
             ToggleRow(Icons.Rounded.ZoomOutMap, zoomTitle, zoomLine, FullscreenZoom.fill) { player.setZoomFillSetting(it) }
-        }
-        val audioTitle = stringResource(R.string.bar_audio_only)
-        val audioLine = stringResource(R.string.settings_audio_only_line)
-        row(audioTitle, audioLine) {
-            ToggleRow(Icons.Rounded.Headphones, audioTitle, audioLine, AudioOnly.enabled) { player.setAudioOnly(it) }
         }
     }
 }

@@ -107,7 +107,6 @@ class PlayerState(private val scope: CoroutineScope) {
     /**
      * The portrait player's shape: the video's own, within [StageMinAspect]..[StageMaxAspect].
      * Wider than 16:9 keeps the 16:9 frame and letterboxes.
-     * Audio only keeps it too (Derek, 2026-10-14), so switching never moves the page.
      */
     val stageAspect: Float get() = videoAspect.coerceIn(StageMinAspect, StageMaxAspect).coerceAtLeast(stageFloor)
     /**
@@ -126,15 +125,12 @@ class PlayerState(private val scope: CoroutineScope) {
     var blankUntilFrame by mutableStateOf(false)
         private set
     /**
-     * The shared video surface still holds the frame from when audio only began. Turning video
-     * back on switches straight away, so the picture stays hidden (thumbnail + spinner) until
-     * the renderer draws a fresh frame, instead of showing that frozen one. Starting in audio
-     * only, the surface has no frame of this video yet either.
+     * The shared surface still holds an old frame. The picture stays hidden (thumbnail + spinner)
+     * until the renderer draws a fresh one.
      */
-    var videoStale by mutableStateOf(AudioOnly.enabled)
+    var videoStale by mutableStateOf(false)
         private set
-    /** Only once video is wanted again: going into audio only, the last frame stays as the audio stage fades over it. */
-    val hidesStaleVideo: Boolean get() = videoStale && !AudioOnly.enabled
+    val hidesStaleVideo: Boolean get() = videoStale
     /** What the decoder is really producing, e.g. "1920×1080 · H.264 · itag 299". */
     var playingFormat by mutableStateOf<String?>(null)
         private set
@@ -776,16 +772,9 @@ class PlayerState(private val scope: CoroutineScope) {
 
     fun toggleRememberSpeed() = PlaybackSpeed.setRemember(!PlaybackSpeed.remember, speed)
 
-    /** Audio only for the whole app: the video track goes off (or back on) right away. */
-    fun setAudioOnly(on: Boolean) {
-        AudioOnly.set(on)
-        if (on) videoStale = true
-        applyVideoTrack()
-    }
-
     /**
-     * App left the screen. While playback continues in the background, drop the video track
-     * (audio only). If the user already paused, keep video loaded so reopening the app does
+     * App left the screen. While playback continues in the background, drop the video track.
+     * If the user already paused, keep video loaded so reopening the app does
      * not re-buffer or spin up the decoder again.
      */
     fun setBackground(background: Boolean) {
@@ -820,7 +809,7 @@ class PlayerState(private val scope: CoroutineScope) {
     /** True only after the app has been in the background long enough while playing. */
     private var backgroundVideoOff = false
     private var backgroundVideoOffJob: Job? = null
-    /** Hides the spinner while video turns back on after background audio-only. */
+    /** Hides the spinner while video turns back on after background playback. */
     private var suppressBufferingForVideoResume = false
 
     /**
@@ -834,12 +823,12 @@ class PlayerState(private val scope: CoroutineScope) {
 
     private var wantAside = false
 
-    /** Video off only after sustained background playback, Shorts aside, or audio-only mode. */
+    /** Video off only after sustained background playback, or while Shorts has the decoder. */
     private fun applyVideoTrack() {
-        val off = backgroundVideoOff || wantAside || AudioOnly.enabled
+        val off = backgroundVideoOff || wantAside
         val player = controller ?: return
         if (player.trackSelectionParameters.disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_VIDEO) == off) return
-        Log.i(TAG, if (off) "video off (${if (AudioOnly.enabled) "audio only" else if (wantAside) "Shorts" else "background playback"})" else "video on")
+        Log.i(TAG, if (off) "video off (${if (wantAside) "Shorts" else "background playback"})" else "video on")
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, off)
             .build()
@@ -1077,5 +1066,5 @@ enum class PlayerSheet { Quality, Speed, Chapters, Comments, LiveChat, Queue, Ca
 val PlayerSheet?.isPanel: Boolean get() = this == PlayerSheet.Comments || this == PlayerSheet.LiveChat || this == PlayerSheet.Transcript
 
 private const val TAG = "Yuno"
-/** Background audio-only kicks in only after this long; quick app switches keep video loaded. */
+/** The video track drops in the background only after this long; quick app switches keep video loaded. */
 private const val BACKGROUND_VIDEO_OFF_DELAY_MS = 2_000L

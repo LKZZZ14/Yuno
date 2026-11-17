@@ -328,7 +328,7 @@ fun PlayerScreen(
                                 SubscribeButton(subscribed = false, onClick = state::toggleSubscribe)
                             }
                         }
-                        // Speed, quality and audio only live on the video's own controls (VideoView.kt).
+                        // Speed and quality live on the video's own controls (VideoView.kt).
                         PlayerActions(state)
                         QueueCard(state, onOpen = { state.sheet = PlayerSheet.Queue })
                         if (details?.live == true) LiveChatCard(state.liveChat) { state.sheet = PlayerSheet.LiveChat }
@@ -458,7 +458,7 @@ private fun VideoStage(
                     return Offset(0f, available.y)
                 }
                 val upward = available.y < 0f
-                val canFullscreen = upward && !state.fullscreen && !AudioOnly.enabled && dock.openFraction() >= 0.999f
+                val canFullscreen = upward && !state.fullscreen && dock.openFraction() >= 0.999f
                 if (canFullscreen || pulling.value && upward) {
                     pulling.value = true
                     val next = (pullUp.value - available.y).coerceAtLeast(0f)
@@ -500,8 +500,6 @@ private fun VideoStage(
     // Where the stage sits with the sheet fully open. Kept off snapshot state:
     // writing it every placement recomposed the player mid-drag.
     val stageAnchor = remember { StageAnchor() }
-    // Audio only keeps this slot. The picture becomes the audio stage inside it,
-    // instead of the slot closing and leaving a gap where the video was.
     val stage = Modifier
         .padding(horizontal = StageSideGap)
         .fillMaxWidth()
@@ -591,27 +589,7 @@ private fun VideoStage(
     }
     // Controls appear only once the video has nearly landed.
     val controlsAlpha = { ramp(progress(), 0.7f) }
-    // Audio only ↔ video in place (Derek, 2026-10-14): [cover] is how much of the audio stage
-    // lies over the video, [gather] its controls coming together.
-    val audio = AudioOnly.enabled
-    val cover = remember { Animatable(if (audio) 1f else 0f) }
-    val gather = remember { Animatable(if (audio) 1f else 0f) }
-    LaunchedEffect(audio) {
-        if (reduced) { cover.snapTo(if (audio) 1f else 0f); gather.snapTo(if (audio) 1f else 0f); return@LaunchedEffect }
-        if (audio) {
-            launch { cover.animateTo(1f, tween(AudioSwitchMs, easing = Motion.Emphasized)) }
-            delay(AudioSwitchMs / 3L)
-            gather.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 420f))
-        } else {
-            // Straight away (Derek: waiting for the video felt like the tap hadn't registered).
-            // Underneath, the video shows its thumbnail and a spinner until a fresh frame
-            // arrives ([PlayerState.videoStale]).
-            launch { gather.animateTo(0f, tween(AudioSwitchMs / 2, easing = Motion.Emphasized)) }
-            cover.animateTo(0f, tween(AudioSwitchMs, easing = Motion.Emphasized))
-        }
-    }
-    val showVideo by remember { derivedStateOf { !AudioOnly.enabled || cover.value < 1f } }
-    val showAudio by remember { derivedStateOf { AudioOnly.enabled || cover.value > 0f } }
+    val flying by remember { derivedStateOf { dock.poseReady && dock.openFraction() > 0f } }
     Box(
         Modifier
             .nestedScroll(sheetDrag)
@@ -619,35 +597,20 @@ private fun VideoStage(
             .then(stage),
     ) {
         Box(Modifier.fillMaxSize().then(stageVideoClip)) {
-            if (showVideo) {
-                val flying by remember { derivedStateOf { dock.poseReady && dock.openFraction() > 0f } }
-                VideoContent(
-                    state = state,
-                    fullscreen = false,
-                    interactive = interactive,
-                    onInactiveTap = { },
-                    onCollapse = onCollapse,
-                    onToggleFullscreen = onFullscreen,
-                    controlsAlpha = controlsAlpha,
-                    portraitEdgeScrub = true,
-                    liveSurface = flying,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = if (flying) 1f else 0f },
-                )
-            }
-            if (showAudio) {
-                AudioOnlyStage(
-                    state = state,
-                    interactive = interactive && audio,
-                    onInactiveTap = { },
-                    progress = progress,
-                    controlsAlpha = controlsAlpha,
-                    cover = { cover.value },
-                    gather = { gather.value },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            VideoContent(
+                state = state,
+                fullscreen = false,
+                interactive = interactive,
+                onInactiveTap = { },
+                onCollapse = onCollapse,
+                onToggleFullscreen = onFullscreen,
+                controlsAlpha = controlsAlpha,
+                portraitEdgeScrub = true,
+                liveSurface = flying,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = if (flying) 1f else 0f },
+            )
         }
         // Rides the morph with the video; offset up into the status-bar band.
         VideoTopStatusBlur(
@@ -666,9 +629,6 @@ private fun VideoStage(
 private class StageAnchor {
     var origin: Offset? = null
 }
-
-/** Audio only ↔ video: how long the audio stage takes to cover (or uncover) the picture. */
-private const val AudioSwitchMs = 360
 
 /** How far a swipe up on the open video travels before it goes fullscreen on release. */
 private val FullscreenPull = 64.dp
@@ -966,13 +926,13 @@ fun MiniPlayer(
                 Box(Modifier.fillMaxSize().aspectFit(state.stageAspect, cover = true)) {
                     if (state.blankUntilFrame) {
                         Box(Modifier.fillMaxSize().background(Color.Black))
-                    } else if (HeldFrame.image != null && !state.hidesStaleVideo && !AudioOnly.enabled) {
+                    } else if (HeldFrame.image != null && !state.hidesStaleVideo) {
                         HeldFrameImage(Modifier.fillMaxSize().aspectFit(state.videoAspect))
                     } else {
                         Thumbnail(item.thumbnail, Modifier.fillMaxSize().aspectFit(state.videoAspect), radius = 0)
                     }
                 }
-                if (showVideo && !AudioOnly.enabled) {
+                if (showVideo) {
                     Box(Modifier.fillMaxSize().aspectFit(state.stageAspect, cover = true)) {
                         LocalVideoSurface.current(Modifier.fillMaxSize().aspectFit(state.videoAspect).hideStaleVideo(state))
                     }

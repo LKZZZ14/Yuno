@@ -64,6 +64,10 @@ object VideoTopSampler {
         val barPx = statusBarPx
         if (barPx <= 0) return
         val fresh = SharedVideoTexture.captureStatusStrip(barPx) ?: return
+        publish(fresh)
+    }
+
+    private fun publish(fresh: Bitmap) {
         val target = scratch?.takeIf { it.width == fresh.width && it.height == fresh.height }
             ?: Bitmap.createBitmap(fresh.width, fresh.height, Bitmap.Config.ARGB_8888).also { scratch = it }
         Canvas(target).drawBitmap(fresh, 0f, 0f, null)

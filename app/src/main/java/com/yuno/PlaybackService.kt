@@ -116,13 +116,6 @@ class PlaybackService : MediaSessionService() {
         player.setVideoFrameMetadataListener { _, releaseTimeNs, _, _ -> AvSync.onFrameReleased(releaseTimeNs) }
         player.addListener(SponsorSkipper(player))
         player.addListener(SpeedKeeper(player))
-        // Audio only is app-wide and kept; the UI applies it on connect, this covers a start
-        // without one (e.g. resuming from the media notification).
-        if (AudioOnly.enabled) {
-            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
-                .build()
-        }
         // Before the session's own listener: the UI must see the recovery when the error reaches it.
         player.addListener(StreamRecoverer(player, sources, resolver))
         resumeSaver = ResumeSaver(player).also(player::addListener)
@@ -408,7 +401,7 @@ private class WatchTimeReporter(private val player: ExoPlayer) : Player.Listener
  *
  * The budget covers the back buffer too (the allocator counts both), so it is 60% of the
  * app's large heap (largeHeap is on): ~300 MB on a Pixel. At 1080p (~7 Mbps) that is 3 min
- * behind + ~2 min ahead; far more ahead at lower qualities, the whole video in audio only.
+ * behind + ~2 min ahead; far more ahead at lower qualities.
  * However full the budget, the player always loads [MIN_AHEAD_MS] ahead, so a full back
  * buffer can never starve playback.
  * Starting needs 1 s of media (2 s after a stall): at 1080p60 that halves what must download
@@ -483,7 +476,7 @@ private class SpeedKeeper(private val player: ExoPlayer) : Player.Listener {
 
 /**
  * Schedules SponsorBlock auto-skips for each video as it becomes current. Runs in the
- * service, so skips happen in background and audio-only playback too.
+ * service, so skips happen while the app is in the background too.
  *
  * Each auto-skip segment gets a PlayerMessage at its start (delivered once, so seeking
  * back into a segment plays it — the user's choice wins). On delivery the audio fades out

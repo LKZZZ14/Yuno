@@ -290,7 +290,7 @@ fun YunoApp() {
         }
     }
 
-    // Off screen: after ~2 s of background *playback*, audio-only; quick switches keep video loaded.
+    // Off screen: after ~2 s of background playback the video track drops; quick switches keep video loaded.
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -336,12 +336,11 @@ fun YunoApp() {
     val landscape = remember(windowLandscape, config.screenWidthDp, config.screenHeightDp, config.densityDpi, orientation.multiWindow) {
         if (!orientation.multiWindow && activity.onSquareScreen()) activity.turnedSideways() else windowLandscape
     }
-    // Audio only has no picture to go fullscreen with: the open player stays portrait.
-    orientation.Bind(playerOpen && !AudioOnly.enabled, landscape)
+    orientation.Bind(playerOpen, landscape)
     val pip = remember(activity) { PipController(activity) }
     // Closing the picture-in-picture window pauses (expanding it just comes back).
     pip.Bind(onClosed = { player.controller?.pause() })
-    pip.AutoEnter(AutoPip.on && player.isPlaying && player.current != null && !AudioOnly.enabled, player.videoAspect)
+    pip.AutoEnter(AutoPip.on && player.isPlaying && player.current != null, player.videoAspect)
     // The PiP window can be any shape: hold whatever was showing when it opened.
     val fullscreenBeforePip = remember { mutableStateOf(false) }
     val tabletop = windowLayout.tabletopY != null && playerOpen && !pip.active

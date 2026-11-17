@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.material.icons.rounded.Fullscreen
@@ -559,9 +558,6 @@ fun VideoContent(
                         )
                     } else {
                         Spacer(Modifier.weight(1f))
-                        OverlayTile(stringResource(R.string.video_audio_only), enabled, tool, filled = AudioOnly.enabled, onClick = { touched(); state.setAudioOnly(!AudioOnly.enabled) }) { ink ->
-                            Icon(Icons.Outlined.Headphones, null, tint = ink, modifier = Modifier.size(tool * 0.5f))
-                        }
                     }
                     val stickySpeed = PlaybackSpeed.remember && !PlaybackSpeed.isNormal(state.speed)
                     OverlayPill(
@@ -752,153 +748,9 @@ fun VideoContent(
     }
 }
 
-/**
- * The stage in audio only (Derek, 2026-10-13): no picture, just the playback controls, always
- * shown, on a tonal container the video's own shape. Every control sits exactly where the
- * video's overlay puts it (Derek, 2026-10-14): skips and play centred at the same sizes, the
- * times row and scrubber along the bottom, the skipped note at the top; only the look changes
- * (tonal buttons, primary play, thicker scrubber). The thumbnail fills the stage, with a
- * light scrim so the controls stay readable on it.
- *
- * Switching from or to video happens in place: [cover] fades the whole stage over the picture,
- * and [gather] brings the controls together (skips slide out from behind the play button,
- * the bottom row rises in), with a soft overshoot.
- */
-@Composable
-fun AudioOnlyStage(
-    state: PlayerState,
-    interactive: Boolean,
-    onInactiveTap: () -> Unit,
-    progress: () -> Float,
-    controlsAlpha: () -> Float,
-    modifier: Modifier = Modifier,
-    cover: () -> Float = { 1f },
-    gather: () -> Float = { 1f },
-) {
-    val c = MaterialTheme.colorScheme
-    val currentInteractive by androidx.compose.runtime.rememberUpdatedState(interactive)
-    val currentInactiveTap by androidx.compose.runtime.rememberUpdatedState(onInactiveTap)
-    // While collapsing the controls are off (their taps fall through): a tap re-expands.
-    Box(
-        modifier
-            .graphicsLayer { alpha = cover().coerceIn(0f, 1f) }
-            .pointerInput(Unit) { detectTapGestures { if (!currentInteractive) currentInactiveTap() } },
-    ) {
-        Thumbnail(state.current?.thumbnail, Modifier.fillMaxSize(), radius = 0)
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = 0.45f),
-                    0.35f to Color.Black.copy(alpha = 0.12f),
-                    0.62f to Color.Black.copy(alpha = 0.12f),
-                    1f to Color.Black.copy(alpha = 0.62f),
-                ),
-            ),
-        )
-        val error = state.error
-        if (error != null) {
-            ErrorPanel(error, state, onCollapse = {})
-            return@Box
-        }
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = controlsAlpha() * gather().coerceIn(0f, 1f) }) {
-            SkippedNote(state, Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
-            // The video's headphones button is under this stage, so the same control stays here.
-            OverlayTile(
-                stringResource(R.string.video_audio_only),
-                interactive,
-                36.dp,
-                filled = AudioOnly.enabled,
-                modifier = Modifier.align(Alignment.TopEnd).padding(10.dp),
-                onClick = { state.setAudioOnly(!AudioOnly.enabled) },
-            ) { ink ->
-                Icon(Icons.Outlined.Headphones, null, tint = ink, modifier = Modifier.size(18.dp))
-            }
-            // Same row as the video's: 48 dp skips, 66 dp play, 30 dp apart.
-            val gap = 30.dp
-            val skip = 48.dp
-            val play = 66.dp
-            Row(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalArrangement = Arrangement.spacedBy(gap),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Each skip starts tucked behind the play button and slides out to its place.
-                fun Modifier.slide(side: Int) = graphicsLayer {
-                    translationX = -side * (1f - gather()) * (gap + (play + skip) / 2).toPx()
-                }
-                val canSeek = interactive && (!state.live || state.liveDvr)
-                Box(Modifier.slide(-1)) { TonalSkip(seekIcon(false), seekLabel(-1), canSeek, skip) { state.seekBy(-SeekStep.ms) } }
-                Box(Modifier.graphicsLayer { val k = lerpF(0.6f, 1f, gather()); scaleX = k; scaleY = k }) {
-                    MorphPlayButton(
-                        playing = state.isPlaying,
-                        buffering = state.isBuffering || (state.loading && state.details == null),
-                        size = play,
-                        container = c.primary,
-                        content = c.onPrimary,
-                        enabled = interactive,
-                    ) { state.togglePlay() }
-                }
-                Box(Modifier.slide(1)) { TonalSkip(seekIcon(true), seekLabel(1), canSeek, skip) { state.seekBy(SeekStep.ms) } }
-            }
-            // Same place and padding as the video's bottom bar (its row is the fullscreen button's 34 dp).
-            Column(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(start = 14.dp, end = 8.dp, bottom = 6.dp)
-                    .graphicsLayer { translationY = (1f - gather()) * 16.dp.toPx() },
-            ) {
-                var scrubPreview by remember { mutableStateOf<Long?>(null) }
-                val lockedLive = state.live && !state.liveDvr
-                Row(Modifier.height(34.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (lockedLive) {
-                        LiveChip(atEdge = true, enabled = false, onClick = {})
-                        Spacer(Modifier.weight(1f))
-                    } else {
-                        Text(formatDuration(scrubPreview ?: state.positionMs), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            " / " + formatDuration(state.durationMs),
-                            color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                        )
-                        if (state.live) {
-                            Spacer(Modifier.width(10.dp))
-                            LiveChip(state.durationMs - state.positionMs <= 20_000) { state.jumpToLiveEdge() }
-                        }
-                        Spacer(Modifier.weight(1f))
-                    }
-                    state.askSegment?.let { ask -> SkipSegmentPill(ask, enabled = interactive) { state.skipSegment(ask) } }
-                }
-                Scrubber(
-                    segments = if (lockedLive || !SponsorBlock.enabled) emptyList() else state.segments.filter { it.action != SponsorBlock.Action.Off },
-                    positionMs = if (lockedLive) 1L else state.positionMs,
-                    bufferedMs = if (lockedLive) 1L else state.bufferedMs,
-                    durationMs = if (lockedLive) 1L else state.durationMs,
-                    enabled = interactive && !lockedLive,
-                    onPreview = { scrubPreview = it },
-                    onSeek = { scrubPreview = null; state.seekTo(it) },
-                    track = Color.White.copy(alpha = 0.35f),
-                    buffered = Color.White.copy(alpha = 0.55f),
-                    played = c.primary,
-                    trackHeight = 6.dp,
-                    knob = 8.dp,
-                    knobDragging = 10.dp,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TonalSkip(icon: ImageVector, description: String, enabled: Boolean, size: Dp, onClick: () -> Unit) {
-    val c = MaterialTheme.colorScheme
-    Box(
-        Modifier.size(size).pressable(enabled = enabled, onClick = onClick).clip(CircleShape).background(c.surfaceContainerHigh),
-        contentAlignment = Alignment.Center,
-    ) { Icon(icon, description, tint = c.onSurface, modifier = Modifier.size(size * 0.62f)) }
-}
 
 /**
- * Hides the picture while the shared surface still holds the frame from before audio only
+ * Hides the picture while the shared surface still holds an old frame
  * after video is turned back on ([PlayerState.hidesStaleVideo]); the thumbnail underneath shows
  * instead, and the fresh frame fades in.
  */
@@ -1353,7 +1205,7 @@ private fun OverlayPlay(playing: Boolean, buffering: Boolean, size: Dp, enabled:
 }
 
 /**
- * Hides the picture while the shared surface still holds the frame from before audio only
+ * Hides the picture while the shared surface still holds an old frame
  * after video is turned back on ([PlayerState.hidesStaleVideo]); the thumbnail underneath shows
  * instead, and the fresh frame fades in.
  */
