@@ -365,17 +365,17 @@ private fun Color.withHsl(
     return Color(ColorUtils.HSLToColor(hsl))
 }
 
-/** Channel pages take their colour from the profile picture and the banner. On by default. */
+/** Channel and playlist pages take their colour from their pictures. Off until turned on. */
 object ChannelColorSetting {
     private const val PREFS = "appearance"
     private const val KEY = "channel_colors"
     private var prefs: SharedPreferences? = null
-    var enabled by mutableStateOf(true)
+    var enabled by mutableStateOf(false)
         private set
 
     fun init(context: Context) {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).also { prefs = it }
-        enabled = p.getBoolean(KEY, true)
+        enabled = p.getBoolean(KEY, false)
     }
 
     fun set(on: Boolean) {

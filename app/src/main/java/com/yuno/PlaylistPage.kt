@@ -87,7 +87,8 @@ fun PlaylistScreen(
         ChannelAvatars.resolve(scope, feed.videos, channelAvatarSeed)
     }
     val art = playlist.thumbnail ?: feed.videos.firstOrNull()?.thumbnail
-    val palette = rememberArtworkPalette(art)
+    // Same switch as channel pages: off leaves the plain background.
+    val palette = rememberArtworkPalette(if (ChannelColorSetting.enabled) art else null)
     DisposableEffect(Unit) {
         onDispose { onFootColor(null) }
     }
