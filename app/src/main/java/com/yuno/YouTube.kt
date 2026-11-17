@@ -590,11 +590,6 @@ private val YT_VIDEO_ID_IN_THUMB = Regex("""i\.ytimg\.com/vi/([\w-]{11})/""")
 
 fun ytVideoIdFromThumbUrl(url: String): String? = YT_VIDEO_ID_IN_THUMB.find(url)?.groupValues?.getOrNull(1)
 
-fun isLowRungYtimgUrl(url: String): Boolean {
-    val path = url.substringBefore('?')
-    return "/hqdefault" in path || "/mqdefault" in path || "/default.jpg" in path
-}
-
 fun ytimgThumbnailWidth(url: String): Int {
     Regex("=w(\\d+)").find(url)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
     return when {
@@ -606,16 +601,13 @@ fun ytimgThumbnailWidth(url: String): Int {
     }
 }
 
-fun feedThumbnailUrl(videoId: String): String = "https://i.ytimg.com/vi/$videoId/sddefault.jpg"
-
+/** Flow's stored thumbnail: `hq720` for a YouTube video image, the given URL otherwise. */
 fun sharpenFeedThumbnail(apiUrl: String?, videoId: String): String {
     val api = apiUrl?.trim()?.ifBlank { null }
-    if (api != null && isLowRungYtimgUrl(api)) return feedThumbnailUrl(videoId)
-    if (api != null && ytimgThumbnailWidth(api) >= 720) return api
     if (api != null && ("googleusercontent.com" in api || "ggpht.com" in api)) {
-        return upscaleGgphtThumbnail(api, 1280)
+        return ThumbnailUrlResolver.resizeImageThumbnail(api, 1280, 720)
     }
-    return feedThumbnailUrl(videoId)
+    return ThumbnailUrlResolver.normalizeVideoThumbnail(videoId, api)
 }
 
 fun channelAvatarEdgePx(url: String): Int =
@@ -638,17 +630,6 @@ fun sharpenChannelAvatarUrl(url: String, minEdgePx: Int): String {
     val ceiling = if ("/ytc/" in normalized && "googleusercontent.com" !in normalized) 96 else 800
     val edge = minOf(minEdgePx, ceiling).coerceAtLeast(current)
     return normalized.replace(Regex("=s\\d+"), "=s$edge")
-}
-
-internal fun upscaleGgphtThumbnail(url: String, targetWidth: Int): String {
-    val current = ytimgThumbnailWidth(url)
-    if (current >= targetWidth) return url
-    val height = targetWidth * 9 / 16
-    return if ("=w" in url) {
-        url.replace(Regex("=w\\d+-h\\d+"), "=w$targetWidth-h$height")
-    } else {
-        "$url=w$targetWidth-h$height"
-    }
 }
 
 fun VideoItem.feedAvatar(): String? =

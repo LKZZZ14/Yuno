@@ -1210,7 +1210,7 @@ private fun ShortsShelf(
 @Composable
 private fun ShortTile(short: VideoItem, modifier: Modifier, palette: ArtworkPalette, onClick: () -> Unit) {
     Column(modifier.pressable(pressedScale = 0.97f, onClick = onClick)) {
-        Thumbnail(short.thumbnail, Modifier.fillMaxWidth().aspectRatio(9f / 16f), radius = 16)
+        Thumbnail(short.thumbnail, Modifier.fillMaxWidth().aspectRatio(9f / 16f), radius = 16, videoId = short.id, portrait = true)
         Spacer(Modifier.height(8.dp))
         Text(
             short.title,

@@ -519,7 +519,7 @@ private fun SearchShorts(
         gridItems(videos, key = { it.id }) { video ->
             val index = videos.indexOf(video)
             Column(Modifier.pressable(pressedScale = 0.97f) { onOpen(ShortsList(videos, index)) }) {
-                Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(9f / 16f), radius = 16)
+                Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(9f / 16f), radius = 16, videoId = video.id, portrait = true)
                 Spacer(Modifier.height(8.dp))
                 Text(video.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
@@ -628,7 +628,7 @@ private fun SearchShelfBlock(
                 ) {
                     itemsIndexed(shelf.videos, key = { _, video -> video.id }) { index, video ->
                         Column(Modifier.width(160.dp).pressable(pressedScale = 0.97f) { onOpenShorts(ShortsList(shelf.videos, index)) }) {
-                            Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(9f / 16f), radius = 16)
+                            Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(9f / 16f), radius = 16, videoId = video.id, portrait = true)
                             Spacer(Modifier.height(8.dp))
                             FadingTitle(
                                 text = video.title,
@@ -747,7 +747,7 @@ private fun SearchPostCard(post: CommunityPost) {
         }
         post.image?.let { url ->
             AsyncImage(
-                model = url,
+                model = ThumbnailUrlResolver.resolveCommunityPostImage(url, uncropped = true),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier

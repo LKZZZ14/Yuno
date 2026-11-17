@@ -480,7 +480,7 @@ internal fun ChannelPostCard(post: CommunityPost, palette: ArtworkPalette) {
         }
         post.image?.let { url ->
             AsyncImage(
-                model = url,
+                model = ThumbnailUrlResolver.resolveCommunityPostImage(url, uncropped = true),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 520.dp).background(palette.elevated),

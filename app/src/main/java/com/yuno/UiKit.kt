@@ -43,7 +43,10 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +76,6 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalDensity
 import coil.compose.AsyncImage
 import kotlin.math.roundToInt
@@ -220,18 +222,55 @@ internal val FeedVideoThumbInset = PageGutter
 internal const val FeedVideoThumbRadius = 9
 
 @Composable
-fun Thumbnail(url: String?, modifier: Modifier = Modifier, radius: Int = 22, videoId: String? = null) {
-    val model = remember(url, videoId) {
-        val id = videoId ?: url?.let(::ytVideoIdFromThumbUrl)
-        if (id != null) sharpenFeedThumbnail(url, id) else url
+fun Thumbnail(
+    url: String?,
+    modifier: Modifier = Modifier,
+    radius: Int = 22,
+    videoId: String? = null,
+    portrait: Boolean = false,
+) {
+    ResolvedThumbnail(
+        url = url,
+        videoId = videoId,
+        portrait = portrait,
+        modifier = modifier
+            .clip(RoundedCornerShape(radius.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+    )
+}
+
+/**
+ * Flow's card image: [ThumbnailUrlResolver] picks `hq720`, then `hqdefault` when that file is missing.
+ * A picture that is not a YouTube video thumbnail is loaded as given.
+ */
+@Composable
+fun ResolvedThumbnail(
+    url: String?,
+    modifier: Modifier = Modifier,
+    videoId: String? = null,
+    portrait: Boolean = false,
+    contentScale: ContentScale = ContentScale.Crop,
+) {
+    val models = remember(url, videoId, portrait) {
+        val id = videoId ?: url?.let(::ytVideoIdFromThumbUrl).orEmpty()
+        if (id.isNotBlank()) {
+            ThumbnailUrlResolver.resolveVideoThumbnailCandidates(id, url, ThumbnailQuality.HIGH, portrait)
+        } else {
+            listOfNotNull(url?.takeIf { it.isNotBlank() })
+        }
+    }
+    var index by remember(models) { mutableIntStateOf(0) }
+    val model = models.getOrNull(index)
+    if (model.isNullOrEmpty()) {
+        Box(modifier)
+        return
     }
     AsyncImage(
         model = model,
         contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = modifier
-            .clip(RoundedCornerShape(radius.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        contentScale = contentScale,
+        modifier = modifier,
+        onError = { if (index < models.lastIndex) index += 1 },
     )
 }
 
