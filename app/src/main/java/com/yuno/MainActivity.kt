@@ -232,10 +232,21 @@ fun YunoApp() {
     var shortsFrom by rememberSaveable { mutableStateOf(Tab.Home) }
     var shortsBackTo by rememberSaveable { mutableStateOf<String?>(null) }
     var shortsListOnTab by rememberSaveable { mutableStateOf(false) }
+    // A short opened from search, a channel, or a playlist. The stack stays, so Back
+    // returns to that page; this only hides it while the short is on screen.
+    var shortsCovering by rememberSaveable { mutableStateOf(false) }
+    fun shownRoute(): AppRoute? = if (shortsCovering) null else navigator.visibleRoute()
+    fun shownEntry(): RouteEntry? = if (shortsCovering) null else navigator.visibleEntry()
+    fun dropStack() {
+        navigator.clear()
+        shortsCovering = false
+        shortsListOnTab = false
+        shortsBackTo = null
+    }
     LaunchedEffect(NewVideos.opening) {
         val video = NewVideos.opening ?: return@LaunchedEffect
         NewVideos.opening = null
-        navigator.clear()
+        dropStack()
         if (tab == Tab.Shorts) tab = shortsFrom
         player.open(video)
     }
@@ -278,13 +289,12 @@ fun YunoApp() {
         onDispose { rootView.keepScreenOn = false }
     }
 
-    // Opening the player drops any text focus (the search box behind it), so the keyboard
-    // can't come back over the video.
+    // Opening the player drops any text focus (the search field behind it), so the keyboard
+    // can't come back over the video. The page stays put, so closing the player returns to it.
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     LaunchedEffect(player.expanded) {
         if (player.expanded) {
-            if (navigator.visibleRoute() is AppRoute.Search) navigator.pop()
             focusManager.clearFocus(force = true)
             keyboard?.hide()
         }
@@ -358,20 +368,29 @@ fun YunoApp() {
     }
 
     fun openShorts(list: ShortsList) {
-        shortsBackTo = (navigator.visibleRoute() as? AppRoute.Channel)?.url
-        shortsListOnTab = tab == Tab.Shorts
-        navigator.clear()
+        val route = navigator.visibleRoute()
+        shortsBackTo = (route as? AppRoute.Channel)?.url
+        shortsListOnTab = tab == Tab.Shorts && !shortsCovering
         shorts.openList(list)
         if (tab != Tab.Shorts) { shortsFrom = tab; tab = Tab.Shorts }
+        // Leave search, the channel, and anything under them on the stack.
+        shortsCovering = navigator.entries.isNotEmpty()
     }
 
     fun leaveShorts() {
+        val backToChannelOnTab = shortsListOnTab
         val back = shortsBackTo
         shortsBackTo = null
+        shortsListOnTab = false
+        shortsCovering = false
         when {
-            back == null -> tab = shortsFrom
-            !shortsListOnTab -> { tab = shortsFrom; showChannel(back) }
-            else -> { showChannel(back); shorts.cover(true); shorts.closeList() }
+            // A channel opened over the Shorts tab: the short was its list, and the channel is still underneath.
+            backToChannelOnTab && back != null -> {
+                if ((navigator.visibleRoute() as? AppRoute.Channel)?.url != back) showChannel(back)
+                shorts.cover(true)
+                shorts.closeList()
+            }
+            else -> tab = shortsFrom
         }
     }
 
@@ -380,7 +399,8 @@ fun YunoApp() {
     // The gesture and the bar's back button both come here.
     val canGoBack = navigator.entries.isNotEmpty() || tab != Tab.Home
     val goBack: () -> Unit = {
-        when (val route = navigator.visibleRoute()) {
+        if (shortsCovering) leaveShorts()
+        else when (val route = navigator.visibleRoute()) {
             AppRoute.Settings -> if (settingsQuery.isNotEmpty()) settingsQuery = "" else navigator.pop()
             AppRoute.Search -> if (search.swallowBack() || search.returnToResults()) Unit else navigator.pop()
             is AppRoute.Channel -> {
@@ -417,19 +437,26 @@ fun YunoApp() {
             shorts.enter(mainPlayerActive = player.current != null)
         } else if (shorts.active) {
             shortsBackTo = null
+            shortsListOnTab = false
+            shortsCovering = false
             shorts.leave()
             if (resumeMain) player.controller?.play()
             resumeMain = false
         }
     }
     // Shorts turned off (account sheet) while it was the tab: back to where it was opened from.
-    LaunchedEffect(ShortsSetting.enabled) { if (!ShortsSetting.enabled && tab == Tab.Shorts) tab = shortsFrom }
+    LaunchedEffect(ShortsSetting.enabled) {
+        if (!ShortsSetting.enabled && tab == Tab.Shorts) {
+            shortsCovering = false
+            tab = shortsFrom
+        }
+    }
     LaunchedEffect(tab == Tab.Shorts) {
         if (tab == Tab.Shorts) shortsMorph.animateTo(1f, if (reduced) snap() else tween(ShortsEnterMs, easing = androidx.compose.animation.core.LinearEasing))
         else shortsMorph.animateTo(0f, if (reduced) snap() else tween(ShortsExitMs, easing = ShortsExitEasing))
     }
     SideEffect {
-        StatusBarOverVideo.shorts = tab == Tab.Shorts && navigator.visibleRoute() !is AppRoute.Channel
+        StatusBarOverVideo.shorts = tab == Tab.Shorts && shownRoute() !is AppRoute.Channel
         shorts.onMessage = { player.actionMessage = it }
         shorts.mainBusy = { player.isBuffering }
     }
@@ -446,7 +473,7 @@ fun YunoApp() {
     }
 
     // A channel opened from Shorts sits over the short, which waits paused.
-    SideEffect { shorts.cover(tab == Tab.Shorts && navigator.visibleRoute() is AppRoute.Channel) }
+    SideEffect { shorts.cover(tab == Tab.Shorts && shownRoute() is AppRoute.Channel) }
     BackHandler(enabled = tab == Tab.Shorts && shorts.channelMenu) { shorts.channelMenu = false }
 
     val hazeState = remember { HazeState() }
@@ -505,7 +532,7 @@ fun YunoApp() {
         }
         val openSettingsPage = { navigator.push(AppRoute.Settings) }
         AnimatedContent(
-            targetState = when (val entry = navigator.visibleEntry()) {
+            targetState = when (val entry = shownEntry()) {
                 null -> AppDestination.Tab(tab.ordinal)
                 else -> AppDestination.Route(entry)
             },
@@ -604,7 +631,7 @@ fun YunoApp() {
                 pageStates.SaveableStateProvider(key, pageContent)
             }
         }
-        val route = navigator.visibleRoute()
+        val route = shownRoute()
         val channel = (route as? AppRoute.Channel)?.let { channelStates[it.url] }
         val channelLayout = channel != null && channel.current in setOf(
             ChannelTab.Videos, ChannelTab.Live, ChannelTab.Shows, ChannelTab.Podcasts, ChannelTab.Playlists,
@@ -679,7 +706,7 @@ fun YunoApp() {
                     player.expanded = false
                     showNowPlaying = false
                     val covered = navigator.entries.isNotEmpty()
-                    navigator.clear()
+                    dropStack()
                     when {
                         t == tab && covered -> Unit
                         t == tab -> scrollToTop[t] = (scrollToTop[t] ?: 0) + 1
@@ -699,7 +726,7 @@ fun YunoApp() {
         TopChromeLayer(topChrome, Modifier.align(Alignment.TopCenter).fillMaxWidth())
 
         // Ledgii's bottom vignette
-        val pageColor = if (navigator.visibleRoute() is AppRoute.Channel || navigator.visibleRoute() is AppRoute.Playlist) {
+        val pageColor = if (shownRoute() is AppRoute.Channel || shownRoute() is AppRoute.Playlist) {
             channelFoot ?: c.background
         } else {
             c.background
@@ -745,7 +772,7 @@ fun YunoApp() {
         val onSelectTab: (Tab) -> Unit = { selected ->
             player.expanded = false
             val covered = navigator.entries.isNotEmpty()
-            navigator.clear()
+            dropStack()
             when {
                 selected == tab && covered -> Unit
                 selected == tab -> scrollToTop[selected] = (scrollToTop[selected] ?: 0) + 1
@@ -846,7 +873,7 @@ fun YunoApp() {
             }
         }
         val menuUp = LocalSortMenu.current?.request != null ||
-            (navigator.visibleRoute() is AppRoute.Search && search.filtersOpen)
+            (shownRoute() is AppRoute.Search && search.filtersOpen)
         LaunchedEffect(menuUp) {
             if (menuUp && isGlassSupported()) sortBackdrop.capture()
             else {
@@ -856,7 +883,7 @@ fun YunoApp() {
         }
         ChannelSortMenuOverlay(hazeState, sortBackdrop)
         SearchFilterMenu(
-            open = navigator.visibleRoute() is AppRoute.Search && search.filtersOpen,
+            open = shownRoute() is AppRoute.Search && search.filtersOpen,
             anchor = searchFilterAnchor,
             filter = search.filter,
             shortsEnabled = ShortsSetting.enabled,

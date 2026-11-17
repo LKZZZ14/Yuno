@@ -39,11 +39,10 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -183,6 +182,7 @@ fun SearchScreen(
                 videos = shown.filterIsInstance<SearchHit.Video>().map { it.item },
                 loading = pending,
                 contentPadding = inset,
+                list = state.shortsGrid,
                 onOpen = onOpenShorts,
                 onMore = state::loadMore,
                 hasMore = state.hasMore,
@@ -193,6 +193,7 @@ fun SearchScreen(
                 contentPadding = inset,
                 scrollToTop = scrollToTop,
                 generation = state.generation,
+                savedList = state.resultsList,
                 onOpen = onOpen,
                 onOpenChannel = onOpenChannel,
                 onOpenPlaylist = onOpenPlaylist,
@@ -457,6 +458,7 @@ private fun SearchResults(
     contentPadding: PaddingValues,
     scrollToTop: Int,
     generation: Int,
+    savedList: LazyListState,
     onOpen: (VideoItem) -> Unit,
     onOpenChannel: (String) -> Unit,
     onOpenPlaylist: (PlaylistRef) -> Unit,
@@ -464,8 +466,10 @@ private fun SearchResults(
     onMore: () -> Unit,
     hasMore: Boolean,
 ) {
-    val list = rememberScrollToTop(scrollToTop)
-    LaunchedEffect(generation) { list.scrollToItem(0) }
+    val list = rememberScrollToTop(scrollToTop, savedList)
+    // A new search starts at the top. Coming back to this one does not: the first value is the search already open.
+    val openedAt = remember { generation }
+    LaunchedEffect(generation) { if (generation != openedAt) list.scrollToItem(0) }
     LoadMore(list, hits.isNotEmpty() && hasMore, onMore)
     LazyColumn(state = list, contentPadding = contentPadding) {
         if (loading) items(4) { FeedSkeletons(1) }
@@ -495,11 +499,11 @@ private fun SearchShorts(
     videos: List<VideoItem>,
     loading: Boolean,
     contentPadding: PaddingValues,
+    list: LazyGridState,
     onOpen: (ShortsList) -> Unit,
     onMore: () -> Unit,
     hasMore: Boolean,
 ) {
-    val list = rememberLazyGridState()
     val nearEnd by remember(list) {
         derivedStateOf { (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= list.layoutInfo.totalItemsCount - 4 }
     }

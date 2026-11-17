@@ -99,6 +99,12 @@ class FeedState(
     /** Loaded, and YouTube sent no videos at all (no error either). */
     val loadedEmpty get() = loaded && !loading && error == null && videos.isEmpty()
 
+    /**
+     * Where this feed is scrolled. Lives here, not in the list on screen, so opening a video,
+     * channel, playlist, or short and coming back lands on the same row.
+     */
+    val scroll = LazyListState()
+
     fun ensureLoaded() { if (!loaded && !loading) refresh() }
 
     /** The first page shown landed more than [ms] ago (false while nothing has). */
@@ -209,6 +215,7 @@ class FeedState(
         shown.clear()
         videos = emptyList(); next = null; loaded = false; loading = false; error = null
         chips = emptyList(); chip = null; landedAt = 0L
+        scroll.requestScrollToItem(0)
     }
 
     private companion object {
@@ -246,6 +253,18 @@ class LibraryData(scope: CoroutineScope, context: Context) {
             }
         }
     }
+
+    /** [home] for the plain chip. A category only after that tab has been opened, so a swipe does not create it. */
+    fun feedIfOpen(chip: FeedChip): FeedState? {
+        val token = chip.token ?: return home
+        return categories[token]
+    }
+
+    /** The recommendation tab left on screen, so coming back opens that one, still scrolled. */
+    var homePage by mutableStateOf(0)
+
+    /** The Library column. A playlist opened from it returns to the same spot. */
+    val libraryScroll = LazyListState()
     val subscriptions = FeedState(scope, prefetchTop = 2) { InnerTube.subscriptionsFeed(it) }
     val history = FeedState(scope) { InnerTube.history(it) }
     private val prefs = context.getSharedPreferences(CHANNELS_PREFS, Context.MODE_PRIVATE)
@@ -300,6 +319,8 @@ class LibraryData(scope: CoroutineScope, context: Context) {
         home.reset(); subscriptions.reset(); history.reset()
         categories.values.forEach { it.reset() }
         categories.clear()
+        homePage = 0
+        libraryScroll.requestScrollToItem(0)
         channelsJob?.cancel(); channelsJob = null; subscriptionsShown = false
         channels = emptyList(); playlists = emptyList()
         prefs.edit().remove(KEY_CHANNELS).apply()
@@ -421,7 +442,7 @@ fun FeedList(
     indicatorTop: Dp = 0.dp,
     /** A card of its own in a grid's second spot (wide windows only). */
     gridExtra: (@Composable (Modifier) -> Unit)? = null,
-    /** Shared with the page so a fade can follow this list. Created here when omitted. */
+    /** Shared with the page so a fade can follow this list. [FeedState.scroll] when omitted. */
     listState: LazyListState? = null,
     /** When set, shown instead of [FeedState.videos] (e.g. subscriptions channel filter). */
     videos: List<VideoItem>? = null,
@@ -435,8 +456,7 @@ fun FeedList(
     LaunchedEffect(listVideos, channelAvatarSeed) {
         ChannelAvatars.resolve(scope, listVideos, channelAvatarSeed)
     }
-    val created = rememberLazyListState()
-    val list = rememberScrollToTop(scrollToTop, listState ?: created)
+    val list = rememberScrollToTop(scrollToTop, listState ?: feed.scroll)
     // A refresh or a new chip starts at the top. The first page landing does not,
     // so scrolling the skeletons is kept when the videos arrive.
     val openedAt = remember { feed.generation to filterScrollKey }

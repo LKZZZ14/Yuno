@@ -28,7 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -44,7 +44,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -105,7 +104,7 @@ fun HomeScreen(
     if (chips.size > 1) {
         HomeChipPager(lib, chips, contentPadding, onOpen, scrollToTop, pullState)
     } else {
-        val listState = rememberLazyListState()
+        val listState = lib.home.scroll
         // The bar itself is the refresh control. Other feeds still use the circular indicator.
         BarPullRefresh(refreshing = lib.home.refreshing, onRefresh = lib.home::refresh, state = pullState) {
             Box(Modifier.fillMaxSize()) {
@@ -138,9 +137,10 @@ private fun HomeChipPager(
     pullState: BarPullRefreshState?,
 ) {
     val scope = rememberCoroutineScope()
-    val pager = rememberPagerState { chips.size }
-    val lists = remember { mutableStateMapOf<String, LazyListState>() }
-    fun listAt(title: String) = lists.getOrPut(title) { LazyListState() }
+    val pager = rememberPagerState(
+        initialPage = lib.homePage.coerceIn(0, (chips.size - 1).coerceAtLeast(0)),
+    ) { chips.size }
+    fun openedScroll(chip: FeedChip) = lib.feedIfOpen(chip)?.scroll
     // A sideways move stays level. The page sliding in is put at the same scroll as the one
     // you left, including when that one is scrolled down past the wordmark.
     var capturedFrom by remember { mutableIntStateOf(-1) }
@@ -155,13 +155,13 @@ private fun HomeChipPager(
         val fromPage = pager.settledPage.coerceIn(0, chips.lastIndex)
         if (capturedFrom != fromPage) {
             capturedFrom = fromPage
-            val from = chips.getOrNull(fromPage)?.title?.let { lists[it] } ?: return@SideEffect
+            val from = chips.getOrNull(fromPage)?.let { openedScroll(it) } ?: return@SideEffect
             anchorIndex = from.firstVisibleItemIndex
             anchorOffset = from.firstVisibleItemScrollOffset
         }
         chips.forEachIndexed { index, chip ->
             if (index == fromPage) return@forEachIndexed
-            val list = lists[chip.title] ?: return@forEachIndexed
+            val list = openedScroll(chip) ?: return@forEachIndexed
             if (list.firstVisibleItemIndex != anchorIndex || list.firstVisibleItemScrollOffset != anchorOffset) {
                 list.requestScrollToItem(anchorIndex, anchorOffset)
             }
@@ -175,18 +175,19 @@ private fun HomeChipPager(
             .collectLatest { (moving, page) ->
                 if (moving || page == seen) return@collectLatest
                 seen = page
-                val title = chips.getOrNull(page)?.title ?: return@collectLatest
-                val list = lists[title] ?: return@collectLatest
+                lib.homePage = page
+                val chip = chips.getOrNull(page) ?: return@collectLatest
+                val list = openedScroll(chip) ?: return@collectLatest
                 if (list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0) return@collectLatest
                 list.animateScrollToItem(0)
             }
     }
     val follow = if (pager.isScrollInProgress) pager.settledPage else pager.currentPage
-    val followTitle = chips.getOrNull(follow.coerceIn(0, chips.lastIndex))?.title
+    val followChip = chips.getOrNull(follow.coerceIn(0, chips.lastIndex))
     val active = chips.getOrNull(pager.settledPage.coerceIn(0, chips.lastIndex))
     val activeFeed = if (active == null || active.token == null) lib.home else lib.category(active)
     var headerPx by remember { mutableIntStateOf(0) }
-    val followList = followTitle?.let { lists[it] }
+    val followList = followChip?.let { if (it.token == null) lib.home.scroll else lib.category(it).scroll }
     val scrollPx = when {
         followList == null || headerPx <= 0 -> 0
         followList.firstVisibleItemIndex > 0 -> headerPx
@@ -226,12 +227,12 @@ private fun HomeChipPager(
                         header = { item(key = "home-head") { Spacer(Modifier.height(headerDp)) } },
                         scrollToTop = scrollToTop,
                         pullToRefresh = false,
-                        listState = listAt(chip.title),
+                        listState = feed.scroll,
                     )
                 }
             }.first().measure(constraints)
             val fade = subcompose("fade") {
-                PageTopFade(listAt(followTitle ?: chips.first().title))
+                PageTopFade(followList ?: lib.home.scroll)
             }.first().measure(loose)
             layout(constraints.maxWidth, constraints.maxHeight) {
                 body.place(0, 0)
@@ -261,7 +262,7 @@ fun SubscriptionsScreen(
             if (lib.channels.isEmpty()) lib.loadChannels()
         }
     }
-    val listState = rememberLazyListState()
+    val listState = lib.subscriptions.scroll
     val top = pageContentTop()
     val showStrip = signedIn && lib.channels.isNotEmpty()
     if (!signedIn) {
@@ -377,7 +378,7 @@ fun LibraryScreen(
             if (lib.channels.isEmpty()) lib.loadChannels()
         }
     }
-    val listState = rememberLazyListState()
+    val listState = lib.libraryScroll
     val libraryList: @Composable () -> Unit = {
         LazyColumn(
             state = rememberScrollToTop(scrollToTop, listState),
@@ -550,6 +551,12 @@ class SearchState(private val scope: CoroutineScope) {
     /** A pasted YouTube link, opened by the screen instead of searched. */
     var onLink: ((YoutubeTarget) -> Unit)? = null
 
+    /** The results list. Kept here so a video, short, channel, or playlist comes back to the same row. */
+    val resultsList = LazyListState()
+
+    /** The Shorts-chip grid. Same idea as [resultsList]. */
+    val shortsGrid = LazyGridState()
+
     fun reset() {
         request++
         job?.cancel()
@@ -565,6 +572,8 @@ class SearchState(private val scope: CoroutineScope) {
         filter = SearchFilter()
         typing = true
         filtersOpen = false
+        resultsList.requestScrollToItem(0)
+        shortsGrid.requestScrollToItem(0)
     }
 
     fun startTyping() {

@@ -40,7 +40,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -163,8 +162,19 @@ class ChannelState(val url: String, private val scope: CoroutineScope) {
         private set
     /** The tab picked; [current] is the one shown (Home first, as on YouTube — Derek). */
     private var tab by mutableStateOf(ChannelTab.Home)
-    /** The page's scroll, kept here so that back from one of its shorts the page is where it was. */
+    /**
+     * Each tab's scroll, kept here so back from a short, video, or playlist returns to the same row.
+     * [list] is the Videos tab.
+     */
     val list = LazyListState()
+    val homeList = LazyListState()
+    val liveList = LazyListState()
+    val shortsList = LazyListState()
+    val showsList = LazyListState()
+    val podcastsList = LazyListState()
+    val playlistsList = LazyListState()
+    val postsList = LazyListState()
+    val aboutList = LazyListState()
 
     val videos = FeedState(scope) { token -> filled(InnerTube.channelVideos(channelId(), token)) }
     val live = FeedState(scope) { token -> filled(InnerTube.channelLive(channelId(), tabParams(ChannelTab.Live), token)) }
@@ -637,15 +647,15 @@ private fun ChannelPagerBody(
     val bottom = contentPadding.calculateBottomPadding()
     val listPad = PaddingValues(bottom = bottom)
     val lift = headerDp + tabsDp
-    val homeList = rememberLazyListState()
+    val homeList = state.homeList
     val videosList = state.list
-    val liveList = rememberLazyListState()
-    val shortsList = rememberLazyListState()
-    val showsList = rememberLazyListState()
-    val podcastsList = rememberLazyListState()
-    val playlistsList = rememberLazyListState()
-    val postsList = rememberLazyListState()
-    val aboutList = rememberLazyListState()
+    val liveList = state.liveList
+    val shortsList = state.shortsList
+    val showsList = state.showsList
+    val podcastsList = state.podcastsList
+    val playlistsList = state.playlistsList
+    val postsList = state.postsList
+    val aboutList = state.aboutList
     fun listAt(index: Int) = when (tabs.getOrNull(index)) {
         ChannelTab.Home -> homeList
         ChannelTab.Videos -> videosList
@@ -656,6 +666,12 @@ private fun ChannelPagerBody(
         ChannelTab.Playlists -> playlistsList
         ChannelTab.Posts -> postsList
         ChannelTab.About, null -> aboutList
+    }
+    // Captured before the header is measured. Measuring it can shove the list; the frame below
+    // puts it back, including a place restored from the last visit.
+    val landing = remember {
+        val open = listAt(pager.settledPage.coerceIn(0, (tabs.size - 1).coerceAtLeast(0)))
+        open.firstVisibleItemIndex to open.firstVisibleItemScrollOffset
     }
     // The header moves exactly as far as the open page has scrolled. One scroll, both ways.
     val liveOffset by remember {
@@ -710,12 +726,15 @@ private fun ChannelPagerBody(
             }
     }
     // Only the open list. scrollToItem on a tab that is not composed never returns, and the
-    // page stayed blank. The sticky tab spacer can shove this list down as the header is measured.
+    // page stayed blank. The sticky tab spacer can shove this list as the header is measured,
+    // so put back the place it had, which is the top on a fresh open.
     LaunchedEffect(headerPx > 0f) {
         if (headerPx <= 0f || openedAtTop) return@LaunchedEffect
         withFrameNanos { }
-        listAt(pager.settledPage).requestScrollToItem(0)
-        offsetPx = 0f
+        val (index, offset) = landing
+        listAt(pager.settledPage).requestScrollToItem(index, offset)
+        val scrolled = if (index > 0) headerPx else offset.toFloat()
+        offsetPx = -scrolled.coerceIn(0f, headerPx)
         openedAtTop = true
     }
     val shelfOpen = remember { androidx.compose.runtime.mutableStateMapOf<Int, Boolean>() }
