@@ -586,8 +586,9 @@ private fun SearchChannelRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(hit.latestVideos, key = { it.id }) { video ->
-                    Column(Modifier.width(168.dp).pressable(pressedScale = 0.97f) { onOpen(video) }) {
-                        Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = FeedVideoThumbRadius, videoId = video.id)
+                    val anchor = rememberVideoAnchor(FeedVideoThumbRadius.dp)
+                    Column(Modifier.width(168.dp).pressable(pressedScale = 0.97f) { anchor.play { onOpen(video) } }) {
+                        Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f).videoAnchor(anchor), radius = FeedVideoThumbRadius, videoId = video.id)
                         Spacer(Modifier.height(6.dp))
                         FadingTitle(
                             text = video.title,

@@ -89,6 +89,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -209,7 +210,8 @@ fun PlayerScreen(
     DisposableEffect(dock) { onDispose { dock.attached = false } }
     Box(Modifier.fillMaxSize()) {
         // The page fades in behind the video. The video itself stays solid and
-        // flies to the mini-player's thumbnail (dock fade).
+        // grows out of the thumbnail that was tapped, or out of the mini player
+        // when that is what opened it.
         Box(
             Modifier
                 .fillMaxSize()
@@ -508,9 +510,11 @@ private fun VideoStage(
             val off = dock.offset() ?: 0f
             stageAnchor.origin = coords.positionOnScreen() - Offset(0f, off)
             if (!dock.attached) dock.attached = true
-            // Only a measurement from after the sheet has settled into place.
-            // The one before that sits a step low and flashes under the slot.
-            if (sheetMotion.placed && dock.miniArtOnScreen() != null) dock.notePose()
+            // A page open can pose before the mini player exists: it grows from
+            // the tapped thumbnail. A mini-player expand still waits for that slot,
+            // and for a measurement taken after the sheet has actually been placed.
+            val pageOpen = state.openingFromPage
+            if ((sheetMotion.placed || pageOpen) && (pageOpen || dock.miniArtOnScreen() != null)) dock.notePose()
         }
         .graphicsLayer {
             // Rubber band: up to 6% bigger, ever more slowly, growing down from the top edge.
@@ -521,70 +525,35 @@ private fun VideoStage(
         }
         .graphicsLayer {
             val p = progress()
-            val origin = stageAnchor.origin
-            val mini = dock.miniArtOnScreen()
-            val off = dock.offset() ?: 0f
-            // Hidden until a real dock pose exists. Drawing earlier paints the
-            // frame a step under the mini player's video.
             val parkedOpen = p >= 0.999f
-            alpha = if (dock.poseReady && (p > 0f || parkedOpen)) 1f else 0f
-            if (origin != null && mini != null && p < 0.999f) {
-                // Predict this frame's place from the anchor and the offset the
-                // finger is on now. The layout position is a frame behind a fast
-                // drag, which left the picture short of the thumbnail and then
-                // snapped it home.
-                val stageScreen = origin + Offset(0f, off)
-                val miniLocal = Rect(
-                    mini.left - stageScreen.x,
-                    mini.top - stageScreen.y,
-                    mini.right - stageScreen.x,
-                    mini.bottom - stageScreen.y,
-                )
-                val g = MorphGeometry(
-                    screen = size,
-                    miniCard = miniLocal,
-                    miniThumb = miniLocal,
-                    stage = Rect(Offset.Zero, size),
-                    miniRadius = with(density) { dock.miniArtCorner().toPx() },
-                    thumbRadius = with(density) { dock.miniArtCorner().toPx() },
-                    stageRadius = with(density) { StageRadius.toPx() },
-                )
-                val f = g.videoFrame(size, p)
+            val morph = stageMorph(state, dock, sheetMotion, stageAnchor, size, p, density)
+            // Hidden until a real pose exists. A tap shows the picture immediately,
+            // sitting on the thumbnail it came from.
+            alpha = if (dock.poseReady && (p > 0f || parkedOpen || dock.launchFrom != null)) 1f else 0f
+            if (morph != null) {
+                val f = morph.frame
                 scaleX = f.scale
                 scaleY = f.scale
                 transformOrigin = TransformOrigin(0f, 0f)
                 translationX = f.offset.x
                 translationY = f.offset.y
+            } else {
+                scaleX = 1f
+                scaleY = 1f
+                translationX = 0f
+                translationY = 0f
             }
             shadowElevation = 14.dp.toPx() * (1f - p).coerceIn(0f, 1f)
             ambientShadowColor = Color.Black.copy(alpha = 0.25f)
             spotShadowColor = Color.Black.copy(alpha = 0.35f)
         }
     val stageVideoClip = Modifier.graphicsLayer {
-        val p = progress()
-        val origin = stageAnchor.origin
-        val mini = dock.miniArtOnScreen()
-        val off = dock.offset() ?: 0f
-        if (origin == null || mini == null || p >= 0.999f) return@graphicsLayer
-        val stageScreen = origin + Offset(0f, off)
-        val miniLocal = Rect(
-            mini.left - stageScreen.x,
-            mini.top - stageScreen.y,
-            mini.right - stageScreen.x,
-            mini.bottom - stageScreen.y,
-        )
-        val g = MorphGeometry(
-            screen = size,
-            miniCard = miniLocal,
-            miniThumb = miniLocal,
-            stage = Rect(Offset.Zero, size),
-            miniRadius = with(density) { dock.miniArtCorner().toPx() },
-            thumbRadius = with(density) { dock.miniArtCorner().toPx() },
-            stageRadius = with(density) { StageRadius.toPx() },
-        )
-        val f = g.videoFrame(size, p)
-        val screenRadius = lerpF(g.thumbRadius, g.stageRadius, p.coerceIn(0f, 1f))
-        shape = RoundRectClip(f.window, screenRadius / f.scale.coerceAtLeast(0.01f))
+        val morph = stageMorph(state, dock, sheetMotion, stageAnchor, size, progress(), density) ?: run {
+            clip = false
+            return@graphicsLayer
+        }
+        val f = morph.frame
+        shape = RoundRectClip(f.window, morph.radiusPx / f.scale.coerceAtLeast(0.01f))
         clip = true
     }
     // Controls appear only once the video has nearly landed.
@@ -628,6 +597,155 @@ private fun VideoStage(
 /** Fully-open screen position of the portrait stage. Not snapshot state — see [VideoStage]. */
 private class StageAnchor {
     var origin: Offset? = null
+    /** Picture on screen when a page-open starts moving toward the mini player. */
+    var handoff: Rect? = null
+    var handoffP = 1f
+    var handoffRadius = 0f
+    var snapped = false
+}
+
+private class StageMorph(val frame: VideoFrame, val radiusPx: Float)
+
+/**
+ * Where the portrait video is drawn for this frame.
+ *
+ * A tap grows it out of [PlayerDock.launchFrom]. Opening with no thumbnail lets
+ * the sheet carry the picture. Minimising, and expanding the mini player, uses
+ * the mini player's artwork. Letting go toward the mini player mid-open keeps
+ * the picture on the path it is already on.
+ */
+private fun stageMorph(
+    state: PlayerState,
+    dock: PlayerDock,
+    motion: PlayerSheetMotion,
+    anchor: StageAnchor,
+    size: Size,
+    p: Float,
+    density: Density,
+): StageMorph? {
+    val origin = anchor.origin ?: return null
+    val off = dock.offset() ?: 0f
+    val stageScreen = origin + Offset(0f, off)
+    val stageOnScreen = Rect(stageScreen, Size(size.width, size.height))
+    val card = dock.launchFrom
+    val cardRadius = dock.launchRadiusPx
+    val mini = dock.miniArtOnScreen()
+    val miniRadius = with(density) { dock.miniArtCorner().toPx() }
+    val fullRadius = with(density) { StageRadius.toPx() }
+    val fromPage = state.openingFromPage
+
+    if (!fromPage) {
+        anchor.handoff = null
+        anchor.snapped = false
+        if (p >= 0.999f) return null
+        val art = mini ?: return null
+        return morphTo(stageScreen, size, art, miniRadius, fullRadius, p)
+    }
+
+    if (motion.isClosing) {
+        if (!anchor.snapped) {
+            anchor.snapped = true
+            val picture = pictureNow(anchor, stageScreen, stageOnScreen, size, card, cardRadius, fullRadius, p)
+            anchor.handoff = picture.first
+            anchor.handoffRadius = picture.second
+            anchor.handoffP = p.coerceAtLeast(0.001f)
+        }
+        val from = anchor.handoff ?: stageOnScreen
+        // The slot is laid out a frame after the dismiss starts. Hold the picture
+        // where it is until then, so it does not jump when the slot appears.
+        if (mini == null) {
+            anchor.handoffP = p.coerceAtLeast(0.001f)
+            return placeOn(stageScreen, size, from, anchor.handoffRadius)
+        }
+        val t = ((anchor.handoffP - p) / anchor.handoffP).coerceIn(0f, 1f)
+        return placeOn(stageScreen, size, lerpRect(from, mini, t), lerpF(anchor.handoffRadius, miniRadius, t))
+    }
+
+    anchor.snapped = false
+    if (anchor.handoff != null && p < 0.999f) {
+        val from = anchor.handoff ?: return null
+        val t = ((p - anchor.handoffP) / (1f - anchor.handoffP).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
+        return placeOn(stageScreen, size, lerpRect(from, stageOnScreen, t), lerpF(anchor.handoffRadius, fullRadius, t))
+    }
+    anchor.handoff = null
+    if (p >= 0.999f) return null
+    if (card != null) return morphTo(stageScreen, size, card, cardRadius, fullRadius, p)
+    return null
+}
+
+/** The picture's on-screen rect before a dismiss starts, so the path does not jump. */
+private fun pictureNow(
+    anchor: StageAnchor,
+    stageScreen: Offset,
+    stageOnScreen: Rect,
+    size: Size,
+    card: Rect?,
+    cardRadius: Float,
+    fullRadius: Float,
+    p: Float,
+): Pair<Rect, Float> {
+    val held = anchor.handoff
+    if (held != null) {
+        val t = ((p - anchor.handoffP) / (1f - anchor.handoffP).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
+        return lerpRect(held, stageOnScreen, t) to lerpF(anchor.handoffRadius, fullRadius, t)
+    }
+    if (card != null) {
+        return videoScreenRect(stageScreen, size, card, p) to lerpF(cardRadius, fullRadius, p.coerceIn(0f, 1f))
+    }
+    return stageOnScreen to fullRadius
+}
+
+private fun morphTo(
+    stageScreen: Offset,
+    size: Size,
+    sourceScreen: Rect,
+    sourceRadius: Float,
+    stageRadius: Float,
+    p: Float,
+): StageMorph {
+    val local = Rect(
+        sourceScreen.left - stageScreen.x,
+        sourceScreen.top - stageScreen.y,
+        sourceScreen.right - stageScreen.x,
+        sourceScreen.bottom - stageScreen.y,
+    )
+    val geometry = MorphGeometry(
+        screen = size,
+        miniCard = local,
+        miniThumb = local,
+        stage = Rect(Offset.Zero, size),
+        miniRadius = sourceRadius,
+        thumbRadius = sourceRadius,
+        stageRadius = stageRadius,
+    )
+    return StageMorph(geometry.videoFrame(size, p), lerpF(sourceRadius, stageRadius, p.coerceIn(0f, 1f)))
+}
+
+/** Puts the picture exactly on [screenRect]. */
+private fun placeOn(stageScreen: Offset, size: Size, screenRect: Rect, radius: Float): StageMorph {
+    val local = Rect(
+        screenRect.left - stageScreen.x,
+        screenRect.top - stageScreen.y,
+        screenRect.right - stageScreen.x,
+        screenRect.bottom - stageScreen.y,
+    )
+    val geometry = MorphGeometry(
+        screen = size,
+        miniCard = local,
+        miniThumb = local,
+        stage = Rect(Offset.Zero, size),
+        miniRadius = radius,
+        thumbRadius = radius,
+        stageRadius = radius,
+    )
+    return StageMorph(geometry.videoFrame(size, 0f), radius)
+}
+
+private fun videoScreenRect(stageScreen: Offset, size: Size, source: Rect, p: Float): Rect {
+    val frame = morphTo(stageScreen, size, source, 0f, 0f, p).frame
+    val top = stageScreen + frame.offset + Offset(frame.window.left * frame.scale, frame.window.top * frame.scale)
+    val bottom = stageScreen + frame.offset + Offset(frame.window.right * frame.scale, frame.window.bottom * frame.scale)
+    return Rect(top, bottom)
 }
 
 /** How far a swipe up on the open video travels before it goes fullscreen on release. */

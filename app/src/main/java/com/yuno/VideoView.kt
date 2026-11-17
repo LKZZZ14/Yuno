@@ -422,7 +422,13 @@ fun VideoContent(
                 ) {
                     // Switching videos: nothing of the last one, and not the next one's poster.
                     // Black until its own frame is ready.
-                    if (state.blankUntilFrame) {
+                    if (state.coverWithPoster) {
+                        Thumbnail(
+                            state.current?.thumbnail,
+                            Modifier.fillMaxSize(),
+                            radius = 0,
+                        )
+                    } else if (state.blankUntilFrame) {
                         Box(Modifier.fillMaxSize().background(Color.Black))
                     } else if (state.hidesStaleVideo || HeldFrame.image == null) {
                         // The captured frame sits under the live view. The poster is a
@@ -481,7 +487,7 @@ fun VideoContent(
 
         val enabled = controlsVisible && interactive
         // With the controls hidden, loading still shows: a small spinner in the middle.
-        if (!scrubbing && !controlsVisible && (state.isBuffering || state.hidesStaleVideo || state.blankUntilFrame || (state.loading && state.details == null))) {
+        if (!scrubbing && !controlsVisible && !state.openingFromPage && (state.isBuffering || state.hidesStaleVideo || state.blankUntilFrame || (state.loading && state.details == null))) {
             CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp, modifier = Modifier.align(Alignment.Center).size(36.dp))
         }
         // Waiting out a bot check (BotCheck): the spinner says why this is taking a while.
@@ -756,7 +762,7 @@ fun VideoContent(
  */
 @Composable
 fun Modifier.hideStaleVideo(state: PlayerState): Modifier {
-    val hide = state.hidesStaleVideo || state.blankUntilFrame
+    val hide = state.hidesStaleVideo || state.blankUntilFrame || state.coverWithPoster
     val alpha by animateFloatAsState(
         targetValue = if (hide) 0f else 1f,
         animationSpec = if (hide || rememberReducedMotion()) tween(0) else tween(220, easing = Motion.Emphasized),

@@ -43,6 +43,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -52,7 +53,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
@@ -221,6 +225,33 @@ val LocalVideoMenu = staticCompositionLocalOf<(VideoItem) -> Unit> { {} }
 internal val FeedVideoThumbInset = PageGutter
 internal const val FeedVideoThumbRadius = 9
 
+/** Screen bounds of a thumbnail, so a tap can grow the player out of that picture. */
+class VideoAnchor {
+    var rect: Rect? = null
+    var radiusPx: Float = 0f
+}
+
+@Composable
+fun rememberVideoAnchor(radius: Dp): VideoAnchor {
+    val anchor = remember { VideoAnchor() }
+    val px = with(LocalDensity.current) { radius.toPx() }
+    SideEffect { anchor.radiusPx = px }
+    return anchor
+}
+
+fun Modifier.videoAnchor(anchor: VideoAnchor): Modifier = onGloballyPositioned { coordinates ->
+    val size = coordinates.size
+    val topLeft = coordinates.localToScreen(Offset.Zero)
+    val bottomRight = coordinates.localToScreen(Offset(size.width.toFloat(), size.height.toFloat()))
+    anchor.rect = Rect(topLeft, bottomRight)
+}
+
+/** Records this thumbnail, then runs [open]. */
+fun VideoAnchor.play(open: () -> Unit) {
+    rect?.let { VideoLaunch.offer(it, radiusPx) }
+    open()
+}
+
 @Composable
 fun Thumbnail(
     url: String?,
@@ -340,6 +371,7 @@ fun ChannelAvatar(
 fun VideoCard(video: VideoItem, onClick: () -> Unit, modifier: Modifier = Modifier, metaColor: Color? = null) {
     val c = MaterialTheme.colorScheme
     val menu = LocalVideoMenu.current
+    val anchor = rememberVideoAnchor(FeedVideoThumbRadius.dp)
     Column(
         modifier
             .fillMaxWidth()
@@ -350,12 +382,13 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit, modifier: Modifier = Modifi
                 lift = true,
                 liftPadding = PaddingValues(horizontal = PageGutter),
                 onLongClick = { menu(video) },
-                onClick = onClick,
+                onClick = { anchor.play(onClick) },
             ),
     ) {
         Box(
             Modifier
                 .padding(horizontal = FeedVideoThumbInset)
+                .videoAnchor(anchor)
                 .clip(RoundedCornerShape(FeedVideoThumbRadius.dp)),
         ) {
             Thumbnail(
@@ -400,15 +433,16 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit, modifier: Modifier = Modifi
 fun VideoRow(video: VideoItem, onClick: () -> Unit, trailing: (@Composable () -> Unit)? = null) {
     val c = MaterialTheme.colorScheme
     val menu = LocalVideoMenu.current
+    val anchor = rememberVideoAnchor(16.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp)
             .prefetchOnPress(video.id)
-            .pressable(pressedScale = 0.97f, lift = true, onLongClick = { menu(video) }, onClick = onClick),
+            .pressable(pressedScale = 0.97f, lift = true, onLongClick = { menu(video) }, onClick = { anchor.play(onClick) }),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(140.dp)) {
+        Box(Modifier.width(140.dp).videoAnchor(anchor)) {
             Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 16)
             DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true, live = video.live)
         }

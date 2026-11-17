@@ -454,8 +454,9 @@ fun LibraryScreen(
 @Composable
 private fun HistoryCard(video: VideoItem, onClick: () -> Unit) {
     val menu = LocalVideoMenu.current
-    Column(Modifier.width(168.dp).prefetchOnPress(video.id).pressable(pressedScale = 0.97f, lift = true, onLongClick = { menu(video) }, onClick = onClick)) {
-        Box {
+    val anchor = rememberVideoAnchor(FeedVideoThumbRadius.dp)
+    Column(Modifier.width(168.dp).prefetchOnPress(video.id).pressable(pressedScale = 0.97f, lift = true, onLongClick = { menu(video) }, onClick = { anchor.play(onClick) })) {
+        Box(Modifier.videoAnchor(anchor)) {
             Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = FeedVideoThumbRadius, videoId = video.id)
             DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true, live = video.live)
         }

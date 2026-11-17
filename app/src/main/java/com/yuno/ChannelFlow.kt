@@ -518,6 +518,7 @@ internal fun ChannelPostCard(post: CommunityPost, palette: ArtworkPalette) {
 @Composable
 internal fun ChannelFeedVideo(video: VideoItem, palette: ArtworkPalette, onClick: () -> Unit) {
     val menu = LocalVideoMenu.current
+    val anchor = rememberVideoAnchor(FeedVideoThumbRadius.dp)
     Column(
         Modifier
             .fillMaxWidth()
@@ -528,10 +529,10 @@ internal fun ChannelFeedVideo(video: VideoItem, palette: ArtworkPalette, onClick
                 lift = true,
                 liftPadding = PaddingValues(horizontal = PageGutter),
                 onLongClick = { menu(video) },
-                onClick = onClick,
+                onClick = { anchor.play(onClick) },
             ),
     ) {
-        Box(Modifier.padding(horizontal = PageGutter).clip(RoundedCornerShape(FeedVideoThumbRadius.dp))) {
+        Box(Modifier.padding(horizontal = PageGutter).videoAnchor(anchor).clip(RoundedCornerShape(FeedVideoThumbRadius.dp))) {
             Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = FeedVideoThumbRadius, videoId = video.id)
             DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(5.dp), live = video.live)
             ResumeBar(video.id, Modifier.align(Alignment.BottomStart))
@@ -562,12 +563,13 @@ internal fun ChannelFeedVideo(video: VideoItem, palette: ArtworkPalette, onClick
 @Composable
 internal fun ChannelVideoRow(video: VideoItem, palette: ArtworkPalette, onClick: () -> Unit) {
     val menu = LocalVideoMenu.current
+    val anchor = rememberVideoAnchor(12.dp)
     Row(
         Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = PageGutter).prefetchOnPress(video.id)
-            .pressable(pressedScale = 0.97f, onLongClick = { menu(video) }, onClick = onClick),
+            .pressable(pressedScale = 0.97f, onLongClick = { menu(video) }, onClick = { anchor.play(onClick) }),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(168.dp)) {
+        Box(Modifier.width(168.dp).videoAnchor(anchor)) {
             Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 12, videoId = video.id)
             DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true, live = video.live)
             ResumeBar(video.id, Modifier.align(Alignment.BottomStart))

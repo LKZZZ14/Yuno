@@ -273,6 +273,10 @@ fun YunoApp() {
                 showNowPlaying = up
                 player.expanded = up
             },
+            endLaunch = {
+                player.openingFromPage = false
+                playerDock.finishLaunch()
+            },
         )
     }
     val activeDock = playerDock
@@ -324,13 +328,17 @@ fun YunoApp() {
     var optionsHeld by remember { mutableStateOf<HeldItem?>(null) }
     // On Shorts the app's video waits, paused, out of sight (no mini-player).
     val glassOn = LiquidGlassSetting.enabled && isGlassSupported()
-    val hasMini = player.current != null && tab != Tab.Shorts && !glassOn
+    // A video opened from a page keeps the mini player off until that open settles,
+    // or until a dismiss is already on its way into the slot.
+    val hideMini = player.openingFromPage && !playerSheetMotion.isClosing
+    val showMini = player.current != null && tab != Tab.Shorts && !hideMini
+    val hasMini = showMini && !glassOn
     // A channel page reports the colour its wash settles into, for the bottom fade.
     var channelFoot by remember { mutableStateOf<Color?>(null) }
     val contentPadding = if (wide) {
         PaddingValues(bottom = stackBottom + (if (hasMini) MiniHeight + MiniGap else 0.dp) + 16.dp)
     } else {
-        PaddingValues(bottom = if (player.current != null && tab != Tab.Shorts) ListBottomPlaying else ListBottomIdle)
+        PaddingValues(bottom = if (showMini) ListBottomPlaying else ListBottomIdle)
     }
     val railStart = WindowInsets.safeDrawing.only(WindowInsetsSides.Start).asPaddingValues()
         .calculateStartPadding(LayoutDirection.Ltr)
@@ -465,10 +473,28 @@ fun YunoApp() {
         if (player.current == null) {
             player.expanded = false
             showNowPlaying = false
+            player.openingFromPage = false
+            VideoLaunch.clear()
+            playerDock.finishLaunch()
         } else if (player.expanded && !showNowPlaying) {
-            if (reduced) showNowPlaying = true else playerSheetMotion.open()
+            if (player.openingFromPage) {
+                val launch = VideoLaunch.take()
+                playerDock.armFromPage(launch?.first, launch?.second ?: 0f)
+            } else {
+                VideoLaunch.clear()
+                playerDock.finishLaunch()
+            }
+            if (reduced) {
+                showNowPlaying = true
+                player.openingFromPage = false
+                playerDock.finishLaunch()
+            } else {
+                playerSheetMotion.open()
+            }
         } else if (!player.expanded && showNowPlaying && !playerSheetMotion.holding) {
             if (reduced) showNowPlaying = false else playerSheetMotion.close()
+        } else {
+            VideoLaunch.clear()
         }
     }
 
@@ -794,6 +820,7 @@ fun YunoApp() {
                 onExpandPlayer = { player.expanded = true },
                 dock = activeDock,
                 pull = playerPull,
+                showMini = showMini,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .widthIn(max = FloatingBarMaxWidth)
@@ -817,7 +844,7 @@ fun YunoApp() {
                     },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                if (player.current != null && tab != Tab.Shorts) {
+                if (showMini) {
                     MiniPlayer(
                         player,
                         onExpand = { player.expanded = true },

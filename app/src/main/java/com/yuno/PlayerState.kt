@@ -125,6 +125,12 @@ class PlayerState(private val scope: CoroutineScope) {
     var blankUntilFrame by mutableStateOf(false)
         private set
     /**
+     * This open grew out of a thumbnail. Keep that picture up until the new
+     * video's own frame, including after the open animation has finished.
+     */
+    var coverWithPoster by mutableStateOf(false)
+        private set
+    /**
      * The shared surface still holds an old frame. The picture stays hidden (thumbnail + spinner)
      * until the renderer draws a fresh one.
      */
@@ -139,6 +145,13 @@ class PlayerState(private val scope: CoroutineScope) {
         private set
 
     var expanded by mutableStateOf(false)
+
+    /**
+     * A video was just opened from a page (a card, a row, Play). The full player
+     * comes up on its own; the mini player stays hidden until this open settles.
+     * Expanding the mini player leaves it false.
+     */
+    var openingFromPage by mutableStateOf(false)
     /** Fullscreen: requested (button, swipe up; upright for a vertical video) or entered (rotation). */
     var fullscreen by mutableStateOf(false)
     /** Which bottom sheet is open over the player, if any. */
@@ -185,7 +198,10 @@ class PlayerState(private val scope: CoroutineScope) {
         private set
 
     fun open(item: VideoItem, expand: Boolean = true) {
-        if (expand) expanded = true
+        if (expand) {
+            if (!expanded) openingFromPage = true
+            expanded = true
+        }
         if (current?.id == item.id && error == null) return
         known[item.id] = item
         show(item, startPlayback = true)
@@ -200,6 +216,7 @@ class PlayerState(private val scope: CoroutineScope) {
         if (order.isEmpty()) return
         val index = if (shuffle) 0 else start.coerceIn(0, order.lastIndex)
         order.forEach { known[it.id] = it }
+        if (!expanded) openingFromPage = true
         expanded = true
         val player = controller
         if (player == null) {
@@ -241,6 +258,7 @@ class PlayerState(private val scope: CoroutineScope) {
     private var openedAt = 0L
 
     private fun show(item: VideoItem, startPlayback: Boolean) {
+        if (openingFromPage && current?.id != item.id) coverWithPoster = true
         // Drop the video already on screen before its replacement has anything to show.
         if (startPlayback && current != null && current?.id != item.id) {
             blankUntilFrame = true
@@ -839,6 +857,7 @@ class PlayerState(private val scope: CoroutineScope) {
         controller?.run { stop(); clearMediaItems() }
         queue = emptyList()
         expanded = false
+        openingFromPage = false
         fullscreen = false
         sheet = null
         current = null
@@ -847,6 +866,7 @@ class PlayerState(private val scope: CoroutineScope) {
         botCheck = false
         loading = false
         blankUntilFrame = false
+        coverWithPoster = false
         captions.clear()
     }
 
@@ -952,6 +972,7 @@ class PlayerState(private val scope: CoroutineScope) {
             firstFrameRendered = true
             videoStale = false
             blankUntilFrame = false
+            coverWithPoster = false
             suppressBufferingForVideoResume = false
         }
 
