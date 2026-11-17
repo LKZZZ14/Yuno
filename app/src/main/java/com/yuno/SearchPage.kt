@@ -15,7 +15,6 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
@@ -26,9 +25,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -45,6 +47,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -74,6 +79,9 @@ import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -472,6 +480,7 @@ private fun SearchResults(
                 is SearchHit.Shelf -> SearchShelfBlock(
                     hit,
                     showRuleAbove = hits.getOrNull(index - 1) !is SearchHit.Shelf,
+                    spaceUnder = hits.getOrNull(index + 1) !is SearchHit.Shelf,
                     onOpen = onOpen,
                     onOpenShorts = onOpenShorts,
                 )
@@ -589,12 +598,14 @@ private fun SearchChannelRow(
 
 /**
  * Flow's `SearchShelf`. One rule above and one below. The rule above is left off when the row
- * before this is also a shelf, so two strips do not draw two lines.
+ * before this is also a shelf, so two strips share one line. The line keeps a gutter before the
+ * next video, channel, or playlist, so it does not sit on that row.
  */
 @Composable
 private fun SearchShelfBlock(
     shelf: SearchHit.Shelf,
     showRuleAbove: Boolean,
+    spaceUnder: Boolean,
     onOpen: (VideoItem) -> Unit,
     onOpenShorts: (ShortsList) -> Unit,
 ) {
@@ -603,20 +614,14 @@ private fun SearchShelfBlock(
         if (showRuleAbove) HorizontalDivider(color = c.outlineVariant)
         when (shelf.kind) {
             SearchShelfKind.SHORTS -> {
-                Row(
-                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = PageGutter, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(SfIcons.Shorts, contentDescription = null, modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        shelf.title ?: stringResource(R.string.ui_shorts),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                Text(
+                    shelf.title ?: stringResource(R.string.ui_shorts),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = PageGutter, end = PageGutter, top = PageGutter, bottom = 8.dp),
+                )
                 LazyRow(
                     contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = PageGutter),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -645,16 +650,19 @@ private fun SearchShelfBlock(
                         modifier = Modifier.padding(start = PageGutter, end = PageGutter, top = PageGutter, bottom = 8.dp),
                     )
                 }
-                LazyRow(
-                    contentPadding = PaddingValues(
-                        start = PageGutter,
-                        end = PageGutter,
-                        top = if (shelf.title == null) PageGutter else 0.dp,
-                        bottom = PageGutter,
-                    ),
+                Row(
+                    Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .height(IntrinsicSize.Max)
+                        .padding(
+                            start = PageGutter,
+                            end = PageGutter,
+                            top = if (shelf.title == null) PageGutter else 0.dp,
+                            bottom = PageGutter,
+                        ),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(shelf.posts, key = { it.id }) { post -> SearchPostCard(post) }
+                    shelf.posts.forEach { post -> SearchPostCard(post) }
                 }
             }
             SearchShelfKind.VIDEOS -> {
@@ -673,7 +681,7 @@ private fun SearchShelfBlock(
                 if (shelf.videos.size > collapsed) {
                     TextButton(
                         onClick = { expanded = !expanded },
-                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = PageGutter),
                     ) {
                         Text(stringResource(if (expanded) R.string.ui_search_shelf_less else R.string.ui_search_shelf_more))
                         Icon(
@@ -686,40 +694,95 @@ private fun SearchShelfBlock(
             }
         }
         HorizontalDivider(color = c.outlineVariant)
+        // The next shelf brings its own gap under this shared line. A video, channel, or playlist does not.
+        if (spaceUnder) Spacer(Modifier.height(PageGutter))
     }
 }
 
-/** Flow's search post card: a fixed-width card in the posts strip, author line, text, and preview. */
+/** A post in the search strip, in the channel page's order: author, text, picture, then likes and comments. */
 @Composable
 private fun SearchPostCard(post: CommunityPost) {
     val c = MaterialTheme.colorScheme
+    val context = LocalContext.current
     val shape = RoundedCornerShape(16.dp)
+    var expanded by rememberSaveable(post.id) { mutableStateOf(false) }
+    var overflows by rememberSaveable(post.id) { mutableStateOf(false) }
     Column(
-        Modifier.width(280.dp).clip(shape).border(1.dp, c.outlineVariant, shape).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        Modifier.width(300.dp).fillMaxHeight().clip(shape).background(c.surfaceContainer).padding(16.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ChannelAvatar(post.avatar, post.author, size = 24)
-            Text(
-                post.author,
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (post.ago.isNotBlank()) {
-                Text(post.ago, style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant, maxLines = 1)
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ChannelAvatar(post.avatar, post.author, size = 40)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    post.author,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (post.ago.isNotBlank()) {
+                    Text(post.ago, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (post.text.isNotBlank()) {
             Text(
                 post.text,
                 style = MaterialTheme.typography.bodyMedium,
-                maxLines = 4,
+                maxLines = if (expanded) Int.MAX_VALUE else 6,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                onTextLayout = { overflows = it.hasVisualOverflow },
             )
-            post.image?.let { Thumbnail(it, Modifier.width(72.dp).aspectRatio(1f), radius = 8) }
+            if (!expanded && overflows) {
+                Text(
+                    stringResource(R.string.channel_post_more),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = c.onSurfaceVariant,
+                    modifier = Modifier.pressable { expanded = true },
+                )
+            }
+        }
+        post.image?.let { url ->
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 96.dp, max = 200.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(c.surfaceContainerHighest),
+            )
+        }
+        }
+        Column {
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.ThumbUp, contentDescription = null, tint = c.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                post.likes.ifBlank { stringResource(R.string.player_like) },
+                style = MaterialTheme.typography.labelLarge,
+                color = c.onSurfaceVariant,
+                maxLines = 1,
+            )
+            Spacer(Modifier.weight(1f))
+            Icon(
+                Icons.Outlined.Share,
+                contentDescription = stringResource(R.string.ui_share),
+                tint = c.onSurfaceVariant,
+                modifier = Modifier.size(18.dp).pressable { shareLink(context, "https://www.youtube.com/post/${post.id}", post.author) },
+            )
+            if (post.comments.isNotBlank()) {
+                Spacer(Modifier.width(12.dp))
+                Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, tint = c.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(post.comments, style = MaterialTheme.typography.labelLarge, color = c.onSurfaceVariant, maxLines = 1)
+            }
+            }
         }
     }
 }

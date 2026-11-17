@@ -1185,8 +1185,6 @@ private fun ShortsShelf(
                 .padding(horizontal = PageGutter, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(SfIcons.Shorts, contentDescription = null, tint = palette.onBackground, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.width(8.dp))
             Text(
                 shelfTitle(shelf.title),
                 style = MaterialTheme.typography.titleMedium,
