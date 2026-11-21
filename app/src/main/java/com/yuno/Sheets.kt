@@ -126,7 +126,11 @@ fun VideoOptionsSheet(video: VideoItem, player: PlayerState, onDismiss: () -> Un
         OptionRow(Icons.Rounded.PlaylistPlay, stringResource(R.string.ui_play_next)) { player.playNext(video); onDismiss() }
         OptionRow(Icons.AutoMirrored.Rounded.PlaylistAdd, stringResource(R.string.ui_add_to_queue)) { player.addToQueue(video); onDismiss() }
         if (Account.signedIn) {
-            OptionRow(Icons.Rounded.WatchLater, stringResource(R.string.ui_save_to_watch_later)) { player.saveToWatchLater(video); onDismiss() }
+            if (video.id in WatchLaterList.ids) {
+                OptionRow(Icons.Rounded.RemoveCircleOutline, stringResource(R.string.ui_remove_from_watch_later)) { player.removeFromWatchLater(video); onDismiss() }
+            } else {
+                OptionRow(Icons.Rounded.WatchLater, stringResource(R.string.ui_save_to_watch_later)) { player.saveToWatchLater(video); onDismiss() }
+            }
             OptionRow(Icons.Rounded.LibraryAdd, stringResource(R.string.ui_save_to_playlist)) { onDismiss(); player.openPlaylists(video) }
         }
         OptionRow(Icons.Rounded.Share, stringResource(R.string.ui_share)) {

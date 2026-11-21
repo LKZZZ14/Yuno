@@ -51,7 +51,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -164,11 +166,20 @@ class MainActivity : ComponentActivity() {
  * [YunoIcons.TabLibrary] cover three quarters - so [iconScale] shrinks the
  * other three to Home's optical area instead of letting them run to the edges.
  */
-enum class Tab(val label: String, val icon: ImageVector, val selectedIcon: ImageVector, val iconScale: Float = 1f) {
-    Home("Home", YunoIcons.Home, YunoIcons.Home),
-    Shorts("Shorts", SfIcons.Shorts, SfIcons.Shorts, 0.85f),
-    Subscriptions("Subscriptions", SfIcons.Subscriptions, SfIcons.Subscriptions, 1.08f),
-    Library("Library", YunoIcons.TabLibrary, YunoIcons.TabLibrary, 0.84f),
+enum class Tab(
+    @StringRes val labelRes: Int,
+    val icon: ImageVector,
+    val selectedIcon: ImageVector,
+    val iconScale: Float = 1f,
+) {
+    Home(R.string.app_tab_home, YunoIcons.Home, YunoIcons.Home),
+    Shorts(R.string.app_tab_shorts, SfIcons.Shorts, SfIcons.Shorts, 0.85f),
+    Subscriptions(R.string.app_tab_subscriptions, SfIcons.Subscriptions, SfIcons.Subscriptions, 1.08f),
+    Library(R.string.app_tab_library, YunoIcons.TabLibrary, YunoIcons.TabLibrary, 0.84f);
+
+    /** The tab's name in the app's language (the bar, its accessibility labels and the side rail). */
+    val label: String
+        @Composable get() = stringResource(labelRes)
 }
 
 /** Backdrop the nav samples for liquid glass. */
@@ -653,6 +664,7 @@ fun YunoApp() {
                         onShuffle = { player.openList(it, shuffle = true) },
                         channelAvatarSeed = lib.channels.associate { it.id to it.avatar },
                         onFootColor = { channelFoot = it },
+                        onRemove = if (pageRoute.ref.id == "WL") ({ video: VideoItem -> player.removeFromWatchLater(video) }) else null,
                     )
                     is AppRoute.Channel -> ChannelScreen(
                         channelStates.getOrPut(pageRoute.url) { ChannelState(pageRoute.url, scope) },

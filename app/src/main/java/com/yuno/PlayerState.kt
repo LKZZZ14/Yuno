@@ -311,7 +311,9 @@ class PlayerState(private val scope: CoroutineScope) {
         liveChat.stop()
         captions.clear()
         accountState = null
-        inWatchLater = false
+        // A video opened from the Watch later page (or saved earlier this session) starts as
+        // saved, so Save takes it out instead of adding it a second time.
+        inWatchLater = item.id in WatchLaterList.ids
         // Local Library history (guest + signed-in backup); YouTube's own history still needs sign-in.
         WatchHistory.record(item)
         if (Account.signedIn) {
@@ -338,6 +340,8 @@ class PlayerState(private val scope: CoroutineScope) {
                     WatchHistory.record(d.item)
                     if (!d.playable) error = "No playable stream was found for this video."
                     else if (startPlayback) startPlayback(d.item)
+                    // A song with nothing queued behind it gets YouTube's Mix, so the music keeps going.
+                    if (d.playable && d.music && !d.live) queueMusicMix(item.id)
                 }
                 .onFailure {
                     // Cancelled by the next open (a bot-check wait can last ~40 s): this
@@ -426,6 +430,52 @@ class PlayerState(private val scope: CoroutineScope) {
         continueIfEnded(player)
     }
 
+    private var mixJob: Job? = null
+
+    /** Nothing is queued after the video playing now. */
+    private fun queueIsEmptyBehind(player: MediaController) =
+        player.currentMediaItemIndex + 1 >= player.mediaItemCount
+
+    /**
+     * Automatic music playlist ([AutoPlay.musicMix]): the song [id] just started with nothing queued
+     * after it, so YouTube's Mix for it is queued behind it, as on youtube.com. It shows in the
+     * queue like anything else (the card under the player and the Queue sheet), and the person can
+     * clear it. When the last of it ends, that song gets its own Mix in turn.
+     */
+    private fun queueMusicMix(id: String) {
+        if (!AutoPlay.musicMix) return
+        val first = controller ?: return
+        if (!queueIsEmptyBehind(first)) return
+        mixJob?.cancel()
+        mixJob = scope.launch {
+            val songs = runCatching { YouTube.mix(id) }
+                .onFailure { if (it is CancellationException) throw it; Log.w(TAG, "mix for $id", it) }
+                .getOrDefault(emptyList())
+            val player = controller ?: return@launch
+            // Still on that song, and still nothing queued: the person may have queued something meanwhile.
+            if (songs.isEmpty() || current?.id != id || !queueIsEmptyBehind(player)) return@launch
+            songs.forEach { known.putIfAbsent(it.id, it) }
+            player.addMediaItems(songs.map { mediaItemFor(it) })
+            continueIfEnded(player)
+        }
+    }
+
+    /**
+     * The last video of the queue ended: with [AutoPlay.next] on, the first suggestion (the first of
+     * "More videos") starts by itself, as autoplay does on YouTube. A queue with something left
+     * carries on by itself, so this only acts at its end.
+     */
+    private fun autoPlayNext() {
+        if (!AutoPlay.next) return
+        val player = controller ?: return
+        val d = details?.takeIf { it.item.id == current?.id } ?: return
+        if (d.live || !queueIsEmptyBehind(player)) return
+        val suggestion = d.related.firstOrNull { it.id != d.item.id && !it.live } ?: return
+        known.putIfAbsent(suggestion.id, suggestion)
+        player.addMediaItem(mediaItemFor(suggestion))
+        continueIfEnded(player)
+    }
+
     /** The bar's Next: the queue's first video (the bar only offers it while the queue has one). */
     fun playNextUp() {
         if (queue.isNotEmpty()) playFromQueue(0)
@@ -504,8 +554,13 @@ class PlayerState(private val scope: CoroutineScope) {
     fun refreshAccountState() {
         val item = current ?: return
         accountState = null
-        inWatchLater = false
-        if (!Account.signedIn) return
+        if (!Account.signedIn) {
+            // Another account (or none) next: nothing of this one's Watch later carries over.
+            WatchLaterList.clear()
+            inWatchLater = false
+            return
+        }
+        inWatchLater = item.id in WatchLaterList.ids
         scope.launch {
             runCatching { InnerTube.videoState(item.id) }
                 .onSuccess { if (current?.id == item.id) { accountState = it; originalLike = it.like } }
@@ -556,10 +611,17 @@ class PlayerState(private val scope: CoroutineScope) {
         val id = current?.id ?: return
         val add = !inWatchLater
         inWatchLater = add
+        // The Watch later page follows at once; it is put back below if YouTube refuses.
+        if (add) WatchLaterList.added(id) else WatchLaterList.remove(id)
         scope.launch {
             runCatching { InnerTube.setInWatchLater(id, add) }
-                .onSuccess { actionMessage = if (add) "Saved to Watch later" else "Removed from Watch later" }
-                .onFailure { inWatchLater = !add; actionMessage = "Couldn't update Watch later."; Log.w(TAG, "watch later $id", it) }
+                .onSuccess { actionMessage = if (add) "Saved to Watch later" else str(R.string.ui_removed_from_watch_later) }
+                .onFailure {
+                    inWatchLater = !add
+                    if (add) WatchLaterList.remove(id) else WatchLaterList.added(id)
+                    actionMessage = "Couldn't update Watch later."
+                    Log.w(TAG, "watch later $id", it)
+                }
         }
     }
 
@@ -570,9 +632,31 @@ class PlayerState(private val scope: CoroutineScope) {
             runCatching { InnerTube.setInWatchLater(video.id, true) }
                 .onSuccess {
                     if (current?.id == video.id) inWatchLater = true
+                    WatchLaterList.added(video.id)
                     actionMessage = "Saved to Watch later"
                 }
                 .onFailure { actionMessage = "Couldn't save to Watch later."; Log.w(TAG, "watch later ${video.id}", it) }
+        }
+    }
+
+    /**
+     * Takes [video] out of Watch later (the page's remove button, or the long-press menu on a row
+     * of that page). It leaves the page at once and comes back if YouTube refuses. Runs here, not
+     * in a sheet: closing the menu would cancel its scope mid-request.
+     */
+    fun removeFromWatchLater(video: VideoItem) {
+        if (!Account.signedIn) { actionMessage = "Sign in to save videos."; return }
+        WatchLaterList.remove(video.id)
+        if (current?.id == video.id) inWatchLater = false
+        scope.launch {
+            runCatching { InnerTube.setInWatchLater(video.id, false) }
+                .onSuccess { actionMessage = str(R.string.ui_removed_from_watch_later) }
+                .onFailure {
+                    WatchLaterList.added(video.id)
+                    if (current?.id == video.id) inWatchLater = true
+                    actionMessage = str(R.string.ui_watch_later_remove_failed)
+                    Log.w(TAG, "remove from watch later ${video.id}", it)
+                }
         }
     }
 
@@ -655,6 +739,7 @@ class PlayerState(private val scope: CoroutineScope) {
         fun mark(value: Boolean?) {
             playlistChoices = playlistChoices?.map { if (it.id == choice.id) it.copy(contains = value) else it }
             if (choice.id == "WL" && current?.id == video.id && value != null) inWatchLater = value
+            if (choice.id == "WL" && value != null) { if (value) WatchLaterList.added(video.id) else WatchLaterList.remove(video.id) }
         }
         mark(add)
         scope.launch {
@@ -1011,6 +1096,7 @@ class PlayerState(private val scope: CoroutineScope) {
                 suppressBufferingForVideoResume = false
                 if (error != null) error = null
             }
+            if (playbackState == Player.STATE_ENDED) autoPlayNext()
         }
 
         override fun onPlayerError(e: PlaybackException) {

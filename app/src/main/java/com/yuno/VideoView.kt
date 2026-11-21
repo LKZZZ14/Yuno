@@ -703,9 +703,7 @@ fun VideoContent(
                 durationMs = if (lockedLive) 1L else state.durationMs,
                 enabled = interactive && !lockedLive,
                 active = scrubActive,
-                relativeDrag = true,
                 edgeToEdge = portraitEdgeScrub,
-                tapToSeek = false,
                 edgeTouchPadAbove = EdgeScrubTouchPadAbove,
                 trackHeight = if (fullscreenControlsScrub) FullscreenScrubTrackHeight else 4.dp,
                 touchHeight = when {
@@ -714,13 +712,7 @@ fun VideoContent(
                     else -> EdgeScrubTouchPadAbove * 2
                 },
                 knob = if (fullscreenControlsScrub) FullscreenScrubKnob else 7.dp,
-                knobDragging = if (fullscreenControlsScrub) FullscreenScrubKnobDragging else 9.dp,
-                onPreview = { state.scrubPreviewMs = it; touched() },
-                onSeek = { state.endScrubDragging(it); touched() },
-                onDraggingChanged = { dragging ->
-                    if (dragging) state.beginScrubDragging()
-                    else state.endScrubDragging()
-                },
+                onSeek = { state.seekTo(it); touched() },
                 modifier = scrubModifier.zIndex(10f),
             )
         }
@@ -1645,12 +1637,11 @@ private val FullscreenTimeRowBottomFromEdge: Dp
     get() = FullscreenControlsVerticalPad + EdgeScrubTimeRowBottomPad + FullscreenControlsLift
 /** Knob radii (not diameters). */
 private val FullscreenScrubKnob = 5.dp
-private val FullscreenScrubKnobDragging = 6.dp
 
 /**
  * Scrubber: buffered and played tracks, optional knob. On the video stage the bar is pinned to
- * the bottom edge (full width); [active] turns the played track red and shows the knob. Dragging
- * can follow the finger ([relativeDrag] false) or slide from where you started (true).
+ * the bottom edge (full width); [active] turns the played track red and shows the knob.
+ * Tap-only: touching a point seeks straight there; dragging is ignored (no scrub, no preview).
  */
 @Composable
 private fun Scrubber(
@@ -1659,88 +1650,56 @@ private fun Scrubber(
     bufferedMs: Long,
     durationMs: Long,
     enabled: Boolean,
-    onPreview: (Long) -> Unit,
     onSeek: (Long) -> Unit,
-    onDraggingChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
     active: Boolean = true,
-    relativeDrag: Boolean = false,
     edgeToEdge: Boolean = false,
     edgeTouchPadAbove: Dp = EdgeScrubTouchPadAbove,
-    tapToSeek: Boolean = true,
     track: Color = Color.White.copy(alpha = 0.3f),
     buffered: Color = Color.White.copy(alpha = 0.5f),
     played: Color = Color.White,
     trackHeight: Dp = 4.dp,
     touchHeight: Dp = 24.dp,
     knob: Dp = 7.dp,
-    knobDragging: Dp = 9.dp,
 ) {
-    var dragFraction by remember { mutableStateOf<Float?>(null) }
-    val currentPositionMs by rememberUpdatedState(positionMs)
     val duration = durationMs.coerceAtLeast(1L)
-    val playedFraction = dragFraction ?: (positionMs.toFloat() / duration).coerceIn(0f, 1f)
+    val playedFraction = (positionMs.toFloat() / duration).coerceIn(0f, 1f)
     val bufferedFraction = (bufferedMs.toFloat() / duration).coerceIn(0f, 1f)
-    val dragging = dragFraction != null
-    // Controls visible, or a lone drag while they're hidden: red + thumb, no overlay.
-    val chromeActive = active || dragging
+    val chromeActive = active
     val playedColor by animateColorAsState(
         if (chromeActive) ScrubberActiveRed else played,
         tween(160, easing = Motion.Emphasized),
         label = "scrubPlayed",
     )
-    val knobRadius by animateDpAsState(if (dragging) knobDragging else knob, label = "knob")
+    val knobRadius by animateDpAsState(knob, label = "knob")
     val h = if (edgeToEdge) 2.dp else trackHeight
     val insetEnds = !edgeToEdge
     Canvas(
         modifier = modifier
             .fillMaxWidth()
             .height(touchHeight)
-            .pointerInput(enabled, durationMs, relativeDrag, tapToSeek, edgeToEdge, trackHeight) {
+            .pointerInput(enabled, durationMs, edgeToEdge, trackHeight) {
                 if (!enabled || durationMs <= 0) return@pointerInput
-                val slop = viewConfiguration.touchSlop * 0.35f
+                val slop = viewConfiguration.touchSlop
                 val endInset = if (edgeToEdge) 0f else (trackHeight / 2).toPx()
                 awaitEachGesture {
                     val down = awaitFirstDown()
                     down.consume()
                     val width = (size.width - endInset * 2f).coerceAtLeast(1f)
-                    var fraction = (currentPositionMs.toFloat() / duration).coerceIn(0f, 1f)
-                    var dragged = false
-                    var slopAccum = Offset.Zero
+                    var moved = Offset.Zero
                     while (true) {
                         val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: run {
-                            if (dragged) onDraggingChanged(false)
-                            break
-                        }
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) {
-                            if (dragged) onSeek((fraction * durationMs).toLong())
-                            else if (tapToSeek) {
+                            // Tap only: lifting without having dragged seeks to the touched point.
+                            if (moved.getDistance() < slop) {
                                 val x = (change.position.x - endInset).coerceIn(0f, width)
                                 onSeek((x / width * durationMs).toLong())
                             }
-                            dragFraction = null
-                            if (dragged) onDraggingChanged(false)
+                            change.consume()
                             break
                         }
-                        val delta = change.positionChange()
-                        if (!dragged) {
-                            slopAccum += delta
-                            if (slopAccum.getDistance() < slop) continue
-                            dragged = true
-                            onDraggingChanged(true)
-                            fraction = (currentPositionMs.toFloat() / duration).coerceIn(0f, 1f)
-                            dragFraction = fraction
-                            onPreview((fraction * durationMs).toLong())
-                        } else {
-                            fraction = if (relativeDrag) {
-                                (fraction + delta.x / width).coerceIn(0f, 1f)
-                            } else {
-                                ((change.position.x - endInset) / width).coerceIn(0f, 1f)
-                            }
-                            dragFraction = fraction
-                            onPreview((fraction * durationMs).toLong())
-                        }
+                        moved += change.positionChange()
                         change.consume()
                     }
                 }

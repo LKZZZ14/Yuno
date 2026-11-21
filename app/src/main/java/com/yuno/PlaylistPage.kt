@@ -79,8 +79,12 @@ fun PlaylistScreen(
     onShuffle: (List<VideoItem>) -> Unit,
     channelAvatarSeed: Map<String, String?> = emptyMap(),
     onFootColor: (Color?) -> Unit = {},
+    /** Set on the Watch later page: a trash button on every video takes it out of the list. */
+    onRemove: ((VideoItem) -> Unit)? = null,
 ) {
     LaunchedEffect(playlist.id) { feed.ensureLoaded() }
+    // The long-press menu offers "Remove from Watch later" for the videos listed here.
+    if (playlist.id == "WL") LaunchedEffect(feed.videos) { WatchLaterList.listed(feed.videos) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(feed.videos, channelAvatarSeed) {
         ChannelAvatars.resolve(scope, feed.videos, channelAvatarSeed)
@@ -95,7 +99,7 @@ fun PlaylistScreen(
     val scheme = MaterialTheme.colorScheme
     MaterialTheme(colorScheme = scheme, typography = BitChordTypography, shapes = MaterialTheme.shapes) {
         CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodyLarge.merge(OwnDirectionText)) {
-            PlaylistBody(playlist, feed, contentPadding, grid, palette, onOpen, onShuffle)
+            PlaylistBody(playlist, feed, contentPadding, grid, palette, onOpen, onShuffle, onRemove)
         }
     }
 }
@@ -109,8 +113,11 @@ private fun PlaylistBody(
     palette: ArtworkPalette,
     onOpen: (List<VideoItem>, Int) -> Unit,
     onShuffle: (List<VideoItem>) -> Unit,
+    onRemove: ((VideoItem) -> Unit)?,
 ) {
-    val videos = feed.videos
+    // Videos taken out of Watch later leave the page at once, without reloading it.
+    val removed = if (onRemove != null) WatchLaterList.removed else emptySet()
+    val videos = if (removed.isEmpty()) feed.videos else feed.videos.filter { it.id !in removed }
     val listState = feed.scroll
     val columns = gridColumns()
     val credit = feed.playlistOwner?.takeIf { it.isNotBlank() }
@@ -166,7 +173,7 @@ private fun PlaylistBody(
                             }
                         }
                         else -> {
-                            playlistVideos(videos, columns, grid, palette) { index -> onOpen(videos, index) }
+                            playlistVideos(videos, columns, grid, palette, onRemove) { index -> onOpen(videos, index) }
                             if (feed.loading || feed.hasMore) item {
                                 ChannelTabSkeleton(if (grid) ChannelBone.VideoCard else ChannelBone.VideoRow, page = false)
                             }
@@ -184,17 +191,20 @@ private fun androidx.compose.foundation.lazy.LazyListScope.playlistVideos(
     columns: Int,
     grid: Boolean,
     palette: ArtworkPalette,
+    onRemove: ((VideoItem) -> Unit)?,
     onOpen: (Int) -> Unit,
 ) {
     if (!grid) {
         items(videos.size, key = { videos[it].id }) { index ->
-            ChannelVideoRow(videos[index], palette) { onOpen(index) }
+            val video = videos[index]
+            ChannelVideoRow(video, palette, onRemove = onRemove?.let { remove -> { remove(video) } }) { onOpen(index) }
         }
         return
     }
     if (columns <= 1) {
         items(videos.size, key = { videos[it].id }) { index ->
-            ChannelFeedVideo(videos[index], palette) { onOpen(index) }
+            val video = videos[index]
+            ChannelFeedVideo(video, palette, onRemove = onRemove?.let { remove -> { remove(video) } }) { onOpen(index) }
         }
         return
     }
@@ -204,7 +214,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.playlistVideos(
         Row(Modifier.fillMaxWidth().padding(horizontal = 5.dp)) {
             row.forEach { video ->
                 val at = videos.indexOf(video)
-                Box(Modifier.weight(1f)) { ChannelFeedVideo(video, palette) { onOpen(at) } }
+                Box(Modifier.weight(1f)) {
+                    ChannelFeedVideo(video, palette, onRemove = onRemove?.let { remove -> { remove(video) } }) { onOpen(at) }
+                }
             }
             repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
         }

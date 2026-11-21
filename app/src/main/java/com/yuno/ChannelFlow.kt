@@ -71,6 +71,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -516,7 +518,7 @@ internal fun ChannelPostCard(post: CommunityPost, palette: ArtworkPalette) {
  * inset thumbnail, then the avatar, the title and the meta line at the home page's sizes.
  */
 @Composable
-internal fun ChannelFeedVideo(video: VideoItem, palette: ArtworkPalette, onClick: () -> Unit) {
+internal fun ChannelFeedVideo(video: VideoItem, palette: ArtworkPalette, onRemove: (() -> Unit)? = null, onClick: () -> Unit) {
     val menu = LocalVideoMenu.current
     val anchor = rememberVideoAnchor(FeedVideoThumbRadius.dp)
     Column(
@@ -536,6 +538,7 @@ internal fun ChannelFeedVideo(video: VideoItem, palette: ArtworkPalette, onClick
             Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = FeedVideoThumbRadius, videoId = video.id)
             DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(5.dp), live = video.live)
             ResumeBar(video.id, Modifier.align(Alignment.BottomStart))
+            if (onRemove != null) RemoveFromListButton(onRemove, Modifier.align(Alignment.TopEnd).padding(6.dp))
         }
         Row(Modifier.padding(horizontal = PageGutter, vertical = 12.dp)) {
             ChannelAvatar(video.feedAvatar(), video.channel)
@@ -561,7 +564,7 @@ internal fun ChannelFeedVideo(video: VideoItem, palette: ArtworkPalette, onClick
 
 /** A video on the channel, as a row: thumbnail on the left, title and the detail line. No channel name. */
 @Composable
-internal fun ChannelVideoRow(video: VideoItem, palette: ArtworkPalette, onClick: () -> Unit) {
+internal fun ChannelVideoRow(video: VideoItem, palette: ArtworkPalette, onRemove: (() -> Unit)? = null, onClick: () -> Unit) {
     val menu = LocalVideoMenu.current
     val anchor = rememberVideoAnchor(12.dp)
     Row(
@@ -583,5 +586,33 @@ internal fun ChannelVideoRow(video: VideoItem, palette: ArtworkPalette, onClick:
                 Text(meta, style = MaterialTheme.typography.bodySmall, color = palette.onBackgroundVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
+        if (onRemove != null) {
+            Spacer(Modifier.width(4.dp))
+            RemoveFromListButton(onRemove, tint = palette.onBackgroundVariant, plate = false)
+        }
+    }
+}
+
+/**
+ * A small trash button on a row of a list the person owns (the Watch later page): one tap takes
+ * the video out. [plate] puts it on a dark disc, for over a thumbnail; off, it is a bare icon.
+ */
+@Composable
+private fun RemoveFromListButton(
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = Color.White,
+    plate: Boolean = true,
+) {
+    val label = stringResource(R.string.ui_remove_from_watch_later)
+    Box(
+        modifier
+            .size(36.dp)
+            .then(if (plate) Modifier.clip(CircleShape).background(Color.Black.copy(alpha = 0.55f)) else Modifier)
+            .pressable(onClick = onRemove)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(SfIcons.Trash, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
     }
 }

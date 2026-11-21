@@ -343,7 +343,7 @@ fun PlayerScreen(
                 }
                 val related = details?.related.orEmpty()
                 if (related.isNotEmpty()) {
-                    item(key = "moreTitle") { SectionTitle("More videos") }
+                    item(key = "moreTitle") { AutoPlayHeader() }
                     items(related, key = { "rel-" + it.id }) { video ->
                         Box(Modifier.padding(horizontal = PageGutter)) { VideoRow(video, onClick = { onOpen(video) }) }
                     }

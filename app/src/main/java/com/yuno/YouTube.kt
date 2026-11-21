@@ -25,6 +25,7 @@ import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import org.schabi.newpipe.extractor.exceptions.GeographicRestrictionException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
+import org.schabi.newpipe.extractor.playlist.PlaylistInfo
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
 import org.schabi.newpipe.extractor.stream.AudioStream
@@ -94,6 +95,8 @@ data class VideoDetails(
     val captions: List<CaptionTrack> = emptyList(),
     /** A stream that is on right now. A finished livestream is an ordinary video. */
     val live: Boolean = false,
+    /** A song ([YouTube.isMusic]): with nothing queued after it, a Mix for it is queued ([PlayerState]). */
+    val music: Boolean = false,
 )
 
 @Immutable
@@ -203,6 +206,20 @@ object YouTube {
         runCatching { info.category }.getOrNull().equals("Music", ignoreCase = true) ||
             info.uploaderName.orEmpty().endsWith(" - Topic")
 
+    /**
+     * YouTube's own Mix for a song: the playlist "RD" + the video id, which youtube.com plays behind
+     * a song so the music keeps going. NewPipe reads it off the watch page's `next` answer. The song
+     * itself comes first in it, so it is left out here: it is already playing.
+     */
+    suspend fun mix(videoId: String): List<VideoItem> = withContext(Dispatchers.IO) {
+        PlaylistInfo.getInfo(service, "https://www.youtube.com/watch?v=$videoId&list=RD$videoId")
+            .relatedItems
+            .filterIsInstance<StreamInfoItem>()
+            .mapNotNull { it.toVideoItem() }
+            .filter { it.id != videoId }
+            .distinctBy { it.id }
+    }
+
     suspend fun details(id: String, wait: Boolean = true): VideoDetails = withContext(Dispatchers.IO) {
         val info = if (wait) BotCheck.retrying(id) { StreamCache.getOrLoad(id) } else BotCheck.withoutWaiting(id) { StreamCache.getOrLoad(id) }
         val picked = StreamSelection.pick(info)
@@ -228,6 +245,7 @@ object YouTube {
             related = info.relatedItems.filterIsInstance<StreamInfoItem>().mapNotNull { it.toVideoItem() },
             playable = picked.isPlayable || live != null,
             live = live != null,
+            music = isMusic(info),
             quality = picked.playedHeight?.let { "${it}p" },
             qualities = StreamSelection.heights(info),
             aspect = (if (picked.usesSeparate) picked.video else picked.muxed)

@@ -285,7 +285,13 @@ fun VideoHeldMenu(
                 MenuRow(SfIcons.PlaylistPlay, "Play next", open) { player.playNext(menuVideo); onDismiss() }
                 MenuRow(SfIcons.PlaylistAdd, "Add to queue", open) { player.addToQueue(menuVideo); onDismiss() }
                 MenuSeparator(hairline)
-                MenuRow(SfIcons.Clock, "Save to Watch later", open) { player.saveToWatchLater(menuVideo); onDismiss() }
+                if (menuVideo.id in WatchLaterList.ids) {
+                    MenuRow(SfIcons.Trash, stringResource(R.string.ui_remove_from_watch_later), open) {
+                        player.removeFromWatchLater(menuVideo); onDismiss()
+                    }
+                } else {
+                    MenuRow(SfIcons.Clock, "Save to Watch later", open) { player.saveToWatchLater(menuVideo); onDismiss() }
+                }
                 MenuRow(SfIcons.LibraryAdd, "Save to playlist", open) { onDismiss(); player.openPlaylists(menuVideo) }
                 MenuSeparator(hairline)
                 MenuRow(SfIcons.Share, "Share", open) {

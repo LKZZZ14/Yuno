@@ -35,6 +35,8 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material.icons.rounded.ZoomOutMap
@@ -269,6 +271,16 @@ private fun PlaybackBody(player: PlayerState, search: SettingsSearch) {
             ToggleRow(Icons.Rounded.MusicNote, musicTitle, musicLine, PlaybackSpeed.musicAtNormal) {
                 PlaybackSpeed.chooseMusicAtNormal(it)
             }
+        }
+        val autoTitle = stringResource(R.string.settings_autoplay_title)
+        val autoLine = stringResource(R.string.settings_autoplay_line)
+        row(autoTitle, autoLine, "next", "queue") {
+            ToggleRow(Icons.Rounded.SkipNext, autoTitle, autoLine, AutoPlay.next) { AutoPlay.chooseNext(it) }
+        }
+        val mixTitle = stringResource(R.string.settings_music_mix_title)
+        val mixLine = stringResource(R.string.settings_music_mix_line)
+        row(mixTitle, mixLine, "playlist", "mix") {
+            ToggleRow(Icons.Rounded.QueueMusic, mixTitle, mixLine, AutoPlay.musicMix) { AutoPlay.chooseMusicMix(it) }
         }
         val zoomTitle = stringResource(R.string.settings_zoom_fill_title)
         val zoomLine = stringResource(if (FullscreenZoom.fill) R.string.settings_zoom_fill_on else R.string.settings_zoom_fill_off)
