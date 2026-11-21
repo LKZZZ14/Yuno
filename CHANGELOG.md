@@ -10,6 +10,15 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+### New
+- Autoplay: a switch next to More videos under the player (and in Settings › Playback). When the queue ends, the first suggested video starts by itself.
+- Playing a song with nothing queued now queues YouTube's Mix for it, so the music keeps going. It shows in the queue and can be turned off in Settings › Playback.
+- Watch later: a trash button on every video takes it off the list, and a long-press or the video options offer Remove from Watch later.
+
+### Improved
+- Tapping the progress bar seeks straight to that point. Dragging it no longer scrubs.
+- The navigation bar follows the app language (Início, Inscrições, Biblioteca in Portuguese).
+
 ## 1.1.1
 
 ![Yuno](https://github.com/danielkanan/Yuno/raw/main/docs/banner.png?v=2)
