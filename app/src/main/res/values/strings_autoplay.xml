@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_remove_from_watch_later">Remove from Watch later</string>
+    <string name="ui_removed_from_watch_later">Removed from Watch later</string>
+    <string name="ui_watch_later_remove_failed">Couldn\'t remove it from Watch later.</string>
+    <string name="ui_more_videos">More videos</string>
+    <string name="ui_autoplay">Autoplay</string>
+    <string name="settings_autoplay_title">Autoplay</string>
+    <string name="settings_autoplay_line">When the queue ends, the first suggested video starts by itself</string>
+    <string name="settings_music_mix_title">Automatic music playlist</string>
+    <string name="settings_music_mix_line">When a song plays with nothing queued, YouTube\'s Mix for it keeps the music going</string>
+</resources>
