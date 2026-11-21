@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_remove_from_watch_later">Remover de Assistir mais tarde</string>
+    <string name="ui_removed_from_watch_later">Removido de Assistir mais tarde</string>
+    <string name="ui_watch_later_remove_failed">Não foi possível remover de Assistir mais tarde.</string>
+    <string name="ui_more_videos">Mais vídeos</string>
+    <string name="ui_autoplay">Reprodução automática</string>
+    <string name="settings_autoplay_title">Reprodução automática</string>
+    <string name="settings_autoplay_line">Quando a fila termina, o primeiro vídeo sugerido começa sozinho</string>
+    <string name="settings_music_mix_title">Playlist de músicas automática</string>
+    <string name="settings_music_mix_line">Ao tocar uma música sem nada na fila, o Mix do YouTube para ela mantém a música rolando</string>
+</resources>
