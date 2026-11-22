@@ -18,6 +18,7 @@ changes something people see or feel (faster, fewer errors); then say that.
 - Watch later: a trash button on every video takes it off the list, and a long-press or the video options offer Remove from Watch later.
 
 ### Improved
+- Opening animation: on a cold start the two pause bars pop in like eyes, the play button swims in and the smile is drawn behind it (about 1.6 s, tap to skip). It is skipped when the system turns animations off.
 - Search: the floating All / Shorts / Videos chips are gone, which ends the stutter at the top. The same choices are under Type in the filters button beside the search field.
 - New logo and app icon (yours): two pause bars, a swoosh and a play button, in neon green and white on black. Black and white in notifications, the themed icon and the page header.
 - Settings › About also credits Claude (Anthropic).
