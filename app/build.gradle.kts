@@ -13,7 +13,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 3
-        versionName = "1.1.1"
+        versionName = "0.0.3"
         buildConfigField("String", "GITHUB_RELEASES_REPO", "\"danielkanan/Yuno\"")
     }
 
