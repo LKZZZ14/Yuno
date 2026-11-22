@@ -128,7 +128,7 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         NewVideos.takeVideo(intent)?.let { NewVideos.opening = it }
-        setContent { YunoTheme { YunoApp() } }
+        setContent { YunoTheme { IntroHost(enabled = savedInstanceState == null) { YunoApp() } } }
     }
 
     /** A new-video notification tapped while this window is open (singleTop). */
