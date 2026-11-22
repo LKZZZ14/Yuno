@@ -6,7 +6,7 @@
              its gradient background comes out as a red plate. Duration 0 so the
              icon isn't an animation the splash waits on. -->
         <item name="android:windowSplashScreenBackground">@color/window_light</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_smile</item>
         <item name="android:windowSplashScreenAnimationDuration">0</item>
     </style>
 
