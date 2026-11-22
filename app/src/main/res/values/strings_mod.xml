@@ -4,4 +4,13 @@
     <string name="settings_credit_daniel_line">Original author of Yuno · github.com/danielkanan</string>
     <string name="settings_credit_mod_title">Modified by LKZZZ14</string>
     <string name="settings_credit_mod_line">Improvements in this version · github.com/LKZZZ14</string>
+    <string name="chapters_title">Chapters</string>
+    <string name="chapters_position">%1$d of %2$d</string>
+    <string name="chapters_now_playing">Playing</string>
+    <string name="player_save">Save</string>
+    <string name="player_sign_in_to_like">Sign in to like videos.</string>
+    <string name="player_sign_in_to_save">Sign in to save videos.</string>
+    <string name="player_sign_in_to_playlist">Sign in to save to a playlist.</string>
+    <string name="player_watch_later_update_failed">Couldn\'t update Watch later.</string>
+    <string name="video_skipped">Skipped %1$s %2$s</string>
 </resources>
