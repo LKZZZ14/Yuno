@@ -476,9 +476,24 @@ class PlayerState(private val scope: CoroutineScope) {
         continueIfEnded(player)
     }
 
-    /** The bar's Next: the queue's first video (the bar only offers it while the queue has one). */
+    /** What Next plays when nothing is queued: the first suggestion, the one autoplay would pick. */
+    private fun suggestionForNext(): VideoItem? {
+        val d = details?.takeIf { it.item.id == current?.id } ?: return null
+        if (d.live) return null
+        return d.related.firstOrNull { it.id != d.item.id && !it.live }
+    }
+
+    /** Next has somewhere to go: the queue's first video, or else a suggestion. */
+    val hasNextUp: Boolean get() = queue.isNotEmpty() || suggestionForNext() != null
+
+    /** Next: the queue's first video, or else the first suggestion (queued right after this one, then played). */
     fun playNextUp() {
-        if (queue.isNotEmpty()) playFromQueue(0)
+        if (queue.isNotEmpty()) { playFromQueue(0); return }
+        val player = controller ?: return
+        val suggestion = suggestionForNext() ?: return
+        known.putIfAbsent(suggestion.id, suggestion)
+        player.addMediaItem(player.currentMediaItemIndex + 1, mediaItemFor(suggestion))
+        playFromQueue(0)
     }
 
     /** The chapter playing at [ms], or null when the video has none. */

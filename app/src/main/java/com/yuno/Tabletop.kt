@@ -286,7 +286,7 @@ private fun RowScope.CaptionsKey(player: PlayerState, tall: Boolean = false) =
 
 @Composable
 private fun RowScope.NextKey(player: PlayerState, tall: Boolean = false) {
-    val hasNext = player.queue.isNotEmpty() || !player.details?.related.isNullOrEmpty()
+    val hasNext = player.hasNextUp
     DeckKeyButton(label = stringResource(R.string.bar_tool_next), enabled = hasNext, tall = tall, onClick = { player.playNextUp() }) {
         Icon(Icons.Rounded.SkipNext, null, tint = it, modifier = Modifier.size(26.dp))
     }

@@ -86,6 +86,12 @@ import java.util.Locale
  */
 object AppUpdate {
     private const val TAG = "Yuno"
+    /**
+     * Update checks are off in this build (Lucas, 2026-11-21): it is not the original app, so it must
+     * not look up, offer or download the original's releases (that would replace these changes). With
+     * this false nothing is requested, [available] stays null and Settings › About shows no update row.
+     */
+    const val ENABLED = false
     /** Newest first; enough to cover the notes of every release a phone may have skipped. */
     private const val RELEASES_URL = "https://api.github.com/repos/danielkanan/Yuno/releases?per_page=30"
     private const val APK_ASSET = "Yuno.apk"
@@ -152,7 +158,7 @@ object AppUpdate {
         app = context.applicationContext
         prefs = app.getSharedPreferences("update", Context.MODE_PRIVATE)
         // Shown straight away from the last check; the daily check corrects it.
-        available = savedRelease()?.takeIf { isNewer(it.version) }
+        available = if (ENABLED) savedRelease()?.takeIf { isNewer(it.version) } else null
         // An installed update leaves its APK behind; keep only the one still to install.
         val keep = available?.let { apkFile(it).name }
         dir().listFiles()?.forEach { if (it.name != keep) it.delete() }
@@ -165,6 +171,7 @@ object AppUpdate {
     fun checkNow() = check(force = true)
 
     private fun check(force: Boolean) {
+        if (!ENABLED) return
         val newInstall = prefs.getString(KEY_CHECKED_BY, null) != BuildConfig.VERSION_NAME
         if (checking || (!force && !newInstall && System.currentTimeMillis() < prefs.getLong(KEY_NEXT_CHECK, 0L))) return
         checking = true

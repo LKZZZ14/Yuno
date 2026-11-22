@@ -593,11 +593,10 @@ fun VideoContent(
                             if (!toggleDrop(DropKind.Quality, 1)) state.sheet = PlayerSheet.Quality
                         }
                     }
-                    if (pip?.supported == true) {
-                        OverlayTile(stringResource(R.string.video_pip), enabled, tool, onClick = {
-                            controlsVisible = false
-                            if (!pip.enter(state.videoAspect)) state.actionMessage = str(R.string.video_pip_off)
-                        }) { ink -> Icon(Icons.Rounded.PictureInPictureAlt, null, tint = ink, modifier = Modifier.size(tool * 0.5f)) }
+                    // Next video (the queue's first, else the first suggestion). It took the place of the
+                    // PiP button; PiP still starts from Home, and from Settings > Playback's automatic PiP.
+                    OverlayTile(stringResource(R.string.video_next), enabled && state.hasNextUp, tool, onClick = { touched(); state.playNextUp() }) { ink ->
+                        Icon(Icons.Rounded.SkipNext, null, tint = ink, modifier = Modifier.size(tool * 0.55f))
                     }
                 }
                 val seek = if (fullscreen) 60.dp else 51.dp
@@ -650,11 +649,6 @@ fun VideoContent(
                         }
                         state.askSegment?.let { segment ->
                             SkipSegmentPill(segment, enabled = true) { touched(); state.skipSegment(segment) }
-                        }
-                        if (state.queue.isNotEmpty()) {
-                            OverlayTile(stringResource(R.string.video_next), enabled, 34.dp, onClick = { touched(); state.playNextUp() }) { ink ->
-                                Icon(Icons.Rounded.SkipNext, null, tint = ink, modifier = Modifier.size(20.dp))
-                            }
                         }
                         OverlayTile(stringResource(if (fullscreen) R.string.video_exit_fullscreen else R.string.video_fullscreen), enabled, 34.dp, onClick = onToggleFullscreen) { ink ->
                             Icon(if (fullscreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen, null, tint = ink, modifier = Modifier.size(21.dp))

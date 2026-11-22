@@ -87,6 +87,8 @@ enum class SettingsPage(@StringRes val titleRes: Int, val icon: ImageVector) {
 }
 
 private const val SourceUrl = "https://github.com/danielkanan/Yuno"
+private const val DanielUrl = "https://github.com/danielkanan"
+private const val ModUrl = "https://github.com/LKZZZ14"
 
 
 @Composable
@@ -514,9 +516,30 @@ private fun AboutBody(player: PlayerState, search: SettingsSearch) {
     val shareTitle = stringResource(R.string.settings_crash_share)
     SearchableSettingsGroup(search, header = stringResource(R.string.settings_about)) {
         val versionTitle = stringResource(R.string.settings_version, BuildConfig.VERSION_NAME)
-        row(versionTitle, updateStatus(), "update") {
-            SettingsRow(icon = Icons.Rounded.SystemUpdateAlt, title = versionTitle, subtitle = updateStatus(), onClick = {
-                if (AppUpdate.available != null) whatsNew = true else AppUpdate.checkNow()
+        if (AppUpdate.ENABLED) {
+            row(versionTitle, updateStatus(), "update") {
+                SettingsRow(icon = Icons.Rounded.SystemUpdateAlt, title = versionTitle, subtitle = updateStatus(), onClick = {
+                    if (AppUpdate.available != null) whatsNew = true else AppUpdate.checkNow()
+                })
+            }
+        } else {
+            // Update checks are off in this build: just the version, nothing to tap.
+            row(versionTitle) {
+                SettingsRow(icon = Icons.Rounded.Info, title = versionTitle)
+            }
+        }
+        val danielTitle = stringResource(R.string.settings_credit_daniel_title)
+        val danielLine = stringResource(R.string.settings_credit_daniel_line)
+        row(danielTitle, danielLine, "daniel", "kanan", "github", "credits", "créditos") {
+            SettingsRow(icon = Icons.Rounded.Person, title = danielTitle, subtitle = danielLine, onClick = {
+                context.openOrSay(Intent(Intent.ACTION_VIEW, Uri.parse(DanielUrl))) { player.actionMessage = it }
+            })
+        }
+        val modTitle = stringResource(R.string.settings_credit_mod_title)
+        val modLine = stringResource(R.string.settings_credit_mod_line)
+        row(modTitle, modLine, "lkzzz14", "github", "credits", "créditos") {
+            SettingsRow(icon = Icons.Rounded.Person, title = modTitle, subtitle = modLine, onClick = {
+                context.openOrSay(Intent(Intent.ACTION_VIEW, Uri.parse(ModUrl))) { player.actionMessage = it }
             })
         }
         val crashTitle = stringResource(R.string.settings_crash_title)
