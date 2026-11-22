@@ -85,4 +85,6 @@
     <string name="ui_channel_no_live">Este canal não tem vídeos ao vivo.</string>
     <string name="settings_cc_button_title">Botão CC no player</string>
     <string name="settings_cc_button_line">Mostrar o botão de legendas entre os controles do vídeo</string>
+    <string name="settings_credit_claude_title">Feito com o Claude</string>
+    <string name="settings_credit_claude_line">Código escrito com a ajuda do Claude, da Anthropic</string>
 </resources>
