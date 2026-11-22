@@ -13,4 +13,6 @@
     <string name="player_sign_in_to_playlist">Sign in to save to a playlist.</string>
     <string name="player_watch_later_update_failed">Couldn\'t update Watch later.</string>
     <string name="video_skipped">Skipped %1$s %2$s</string>
+    <string name="settings_cc_button_title">CC button in the player</string>
+    <string name="settings_cc_button_line">Show the captions button among the video controls</string>
 </resources>
