@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_credit_daniel_title">Criado por Daniel Kanan</string>
+    <string name="settings_credit_daniel_line">Autor original do Yuno · github.com/danielkanan</string>
+    <string name="settings_credit_mod_title">Modificado por LKZZZ14</string>
+    <string name="settings_credit_mod_line">Melhorias desta versão · github.com/LKZZZ14</string>
+</resources>
