@@ -256,7 +256,7 @@ fun LargePageBrandMark(
             .pullScale(pull?.markScale() ?: 1f),
     ) {
         Image(
-            painter = painterResource(R.drawable.wordmark),
+            painter = painterResource(R.drawable.wordmark_smile),
             contentDescription = "Yuno",
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Fit,

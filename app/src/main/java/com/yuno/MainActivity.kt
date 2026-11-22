@@ -707,19 +707,11 @@ fun YunoApp() {
                 beside = {
                     if (route == null && tab == Tab.Home) UpdateAction()
                 },
-                footer = {
-                    if (route is AppRoute.Search && search.showingResults) {
-                        SearchFilterBar(
-                            filter = search.filter,
-                            shortsEnabled = ShortsSetting.enabled,
-                            onFilterChange = search::updateFilter,
-                            onExpand = { searchChipScroll.expand() },
-                            modifier = Modifier,
-                        )
-                    }
-                },
+                // The floating All / Shorts / Videos chips are gone (Lucas, 2026-11-22): the filters button
+                // beside the search field has the same Type choices, and the chips made scrolling stutter.
+                footer = {},
                 collapseFooter = route is AppRoute.Search,
-                chipFooter = search.showingResults,
+                chipFooter = false,
                 footerCollapsed = searchChipScroll.isInline,
             ) {
                 if (channelLayout) LayoutAction(channel!!.gridView) { channel.toggleGrid() }

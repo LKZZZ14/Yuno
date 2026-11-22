@@ -144,18 +144,14 @@ fun SearchScreen(
         state.hits.watchFiltered(state.filter.watchState, watched)
     }
     // Same spring as the chip fold, so the first result moves up with the row.
-    val topInset by animateDpAsState(
-        if (state.showingResults && !chipScroll.isInline) underChips else underBar,
-        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "searchChipInset",
-    )
+    // No chips under the bar any more, so the list always starts right under it.
+    val topInset = underBar
     val inset = PaddingValues(top = topInset, bottom = contentPadding.calculateBottomPadding())
     val pending = shown.isEmpty() && state.loading
     Box(
         Modifier
             .fillMaxSize()
-            .overlayTouchBlock()
-            .then(if (state.showingResults) Modifier.nestedScroll(chipScroll) else Modifier),
+            .overlayTouchBlock(),
     ) {
         when {
             !state.showingResults -> SearchSuggestions(

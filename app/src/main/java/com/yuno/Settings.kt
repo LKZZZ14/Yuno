@@ -547,6 +547,11 @@ private fun AboutBody(player: PlayerState, search: SettingsSearch) {
                 context.openOrSay(Intent(Intent.ACTION_VIEW, Uri.parse(ModUrl))) { player.actionMessage = it }
             })
         }
+        val claudeTitle = stringResource(R.string.settings_credit_claude_title)
+        val claudeLine = stringResource(R.string.settings_credit_claude_line)
+        row(claudeTitle, claudeLine, "claude", "anthropic", "credits", "créditos") {
+            SettingsRow(icon = Icons.Rounded.Person, title = claudeTitle, subtitle = claudeLine)
+        }
         val crashTitle = stringResource(R.string.settings_crash_title)
         val crashLine = stringResource(if (CrashLog.newest > 0L) R.string.settings_crash_saved else R.string.settings_crash_none)
         row(crashTitle, crashLine) {
