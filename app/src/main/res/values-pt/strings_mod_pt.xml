@@ -83,4 +83,6 @@
     <string name="ui_search_location">Localização</string>
     <string name="ui_search_purchased">Comprados</string>
     <string name="ui_channel_no_live">Este canal não tem vídeos ao vivo.</string>
+    <string name="settings_cc_button_title">Botão CC no player</string>
+    <string name="settings_cc_button_line">Mostrar o botão de legendas entre os controles do vídeo</string>
 </resources>
