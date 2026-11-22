@@ -15,4 +15,6 @@
     <string name="video_skipped">Skipped %1$s %2$s</string>
     <string name="settings_cc_button_title">CC button in the player</string>
     <string name="settings_cc_button_line">Show the captions button among the video controls</string>
+    <string name="settings_credit_claude_title">Made with Claude</string>
+    <string name="settings_credit_claude_line">Code written with help from Claude, by Anthropic</string>
 </resources>
