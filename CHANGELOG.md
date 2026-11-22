@@ -11,6 +11,7 @@ changes something people see or feel (faster, fewer errors); then say that.
 ## Unreleased
 
 ### New
+- Chapters: in fullscreen, tap the chapter name beside the time to open a see-through panel on the right with each chapter's frame; the video keeps playing. Under the player, a Chapters row shows the current one and opens the full list.
 - Settings › About credits Daniel Kanan (opens his GitHub) and the modifications by LKZZZ14.
 - Autoplay: a switch next to More videos under the player (and in Settings › Playback). When the queue ends, the first suggested video starts by itself.
 - Playing a song with nothing queued now queues YouTube's Mix for it, so the music keeps going. It shows in the queue and can be turned off in Settings › Playback.
@@ -18,6 +19,7 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ### Improved
 - The player's Next button replaces Picture-in-picture and now works with suggested videos too, not only the queue.
+- Portuguese (Brazil) translation completed: player buttons, search filters, channel tabs, live chat and messages.
 - Version is now 0.0.3 and the app no longer checks for updates.
 - Tapping the progress bar seeks straight to that point. Dragging it no longer scrubs.
 - The navigation bar follows the app language (Início, Inscrições, Biblioteca in Portuguese).
