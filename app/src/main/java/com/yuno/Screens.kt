@@ -272,7 +272,7 @@ fun SubscriptionsScreen(
                 item {
                     EmptyState(
                         icon = SfIcons.Subscriptions,
-                        title = "Your subscriptions",
+                        title = stringResource(R.string.ui_subscriptions_signed_out_title),
                         body = "Sign in with Google to see new videos from the channels you follow.",
                         action = { PillButton("Sign in with Google", onSignIn) },
                     )
@@ -797,7 +797,7 @@ internal fun SearchBarField(
     ) {
         Icon(
             SfIcons.Search,
-            contentDescription = "Search",
+            contentDescription = stringResource(R.string.app_tab_search),
             tint = hint,
             modifier = Modifier
                 .size(32.dp)

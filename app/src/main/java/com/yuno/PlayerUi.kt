@@ -90,6 +90,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -336,6 +337,7 @@ fun PlayerScreen(
                         }
                         // Speed and quality live on the video's own controls (VideoView.kt).
                         PlayerActions(state)
+                        ChaptersCard(state, onOpen = { state.sheet = PlayerSheet.Chapters })
                         QueueCard(state, onOpen = { state.sheet = PlayerSheet.Queue })
                         if (details?.live == true) LiveChatCard(state.liveChat) { state.sheet = PlayerSheet.LiveChat }
                         else CommentsCard(state.comments, onOpen = { state.sheet = PlayerSheet.Comments })
@@ -789,7 +791,7 @@ private fun SubscribeButton(subscribed: Boolean, onClick: () -> Unit) {
             Spacer(Modifier.width(6.dp))
         }
         Text(
-            if (subscribed) "Subscribed" else "Subscribe",
+            if (subscribed) stringResource(R.string.app_subscribed) else stringResource(R.string.app_subscribe),
             color = if (subscribed) c.onSecondaryContainer else c.surface,
             fontWeight = FontWeight.ExtraBold, fontSize = 14.sp,
         )
@@ -817,11 +819,11 @@ private fun PlayerActions(state: PlayerState) {
         val item = state.current
         ActionPill(
             icon = SfIcons.Share,
-            label = "Share",
+            label = stringResource(R.string.player_share),
             active = false,
             flourish = null,
             shape = RoundedCornerShape(22.dp),
-            description = "Share",
+            description = stringResource(R.string.player_share),
         ) { item?.let { shareLink(context, "https://youtu.be/${it.id}", it.title) } }
     }
 }
@@ -851,7 +853,7 @@ private fun AccountActions(state: PlayerState) {
             flourish = Flourish.Pop,
             labelRollsUp = rising,
             shape = RoundedCornerShape(topStart = 22.dp, bottomStart = 22.dp, topEnd = 8.dp, bottomEnd = 8.dp),
-            description = "Like",
+            description = stringResource(R.string.player_like),
         ) { state.setLike(LikeStatus.Like) }
         ActionPill(
             icon = if (like == LikeStatus.Dislike) SfIcons.ThumbDownFill else SfIcons.ThumbDown,
@@ -859,25 +861,25 @@ private fun AccountActions(state: PlayerState) {
             active = like == LikeStatus.Dislike,
             flourish = Flourish.Droop,
             shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 22.dp, bottomEnd = 22.dp),
-            description = "Dislike",
+            description = stringResource(R.string.player_dislike),
         ) { state.setLike(LikeStatus.Dislike) }
     }
     ActionPill(
         icon = if (state.inWatchLater) SfIcons.Clock else YunoIcons.Clock,
-        label = if (state.inWatchLater) "Saved" else "Save",
+        label = if (state.inWatchLater) stringResource(R.string.ui_saved) else stringResource(R.string.player_save),
         active = state.inWatchLater,
         flourish = Flourish.Drop,
         shape = RoundedCornerShape(22.dp),
-        description = "Save to Watch later",
+        description = stringResource(R.string.ui_save_to_watch_later),
     ) { state.toggleWatchLater() }
     // Any of the account's playlists (GitHub issue #12).
     ActionPill(
         icon = SfIcons.LibraryAdd,
-        label = "Playlist",
+        label = stringResource(R.string.player_playlist),
         active = false,
         flourish = null,
         shape = RoundedCornerShape(22.dp),
-        description = "Save to playlist",
+        description = stringResource(R.string.player_save_to_playlist),
     ) { state.current?.let(state::openPlaylists) }
 }
 

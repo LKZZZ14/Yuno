@@ -1766,7 +1766,7 @@ private fun ShortsProblem(message: String, onRetry: () -> Unit) {
                 .pressable(onClick = onRetry)
                 .background(c.primary, CircleShape)
                 .padding(horizontal = 22.dp, vertical = 11.dp),
-        ) { Text("Try again", color = c.onPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
+        ) { Text(stringResource(R.string.shorts_try_again), color = c.onPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
     }
 }
 
@@ -1807,7 +1807,7 @@ fun ShortsBar(shorts: ShortsState, progress: () -> Float, onBack: () -> Unit, mo
             GlassSlot(g, g.backCenterX, BackWidth.toPx(), progress, piece = { g.left(it) }, follow = { r, x -> x - g.backCenterX + r.center.x }, appear = { p ->
                 val t = ramp(p, 0.12f, 0.4f)
                 Appear(alpha = t, dx = lerpF(7.dp.toPx(), 0f, decel(t)), rotation = lerpF(-25f, 0f, decel(t)))
-            }, enabled = live, description = "Back", onClick = onBack) {
+            }, enabled = live, description = stringResource(R.string.shorts_back), onClick = onBack) {
                 Icon(BackGlyph, contentDescription = null, tint = Ink, modifier = Modifier.size(22.dp).optical(Mass.back, 22.dp))
             }
             val slot = g.slotWidth
@@ -1816,7 +1816,7 @@ fun ShortsBar(shorts: ShortsState, progress: () -> Float, onBack: () -> Unit, mo
                 Appear(alpha = ramp(t, 0f, 0.35f), dy = lerpF(14.dp.toPx(), 0f, decel(t)), scale = 0.6f + 0.4f * Motion.Pop.transform(t))
             } }
             val onPill = { r: Rect, x: Float -> r.left + (x - g.pillLeft) * r.width / g.pw }
-            GlassSlot(g, g.toolCenterX(0), slot, progress, piece = { g.right(it) }, follow = onPill, appear = tool(0), enabled = live, description = "Like", onClick = shorts::toggleLike) {
+            GlassSlot(g, g.toolCenterX(0), slot, progress, piece = { g.right(it) }, follow = onPill, appear = tool(0), enabled = live, description = stringResource(R.string.shorts_like), onClick = shorts::toggleLike) {
                 val liked = account?.like == LikeStatus.Like
                 // Keyed so a short that arrives already liked (or loads its state) doesn't pop.
                 key(id, account != null) {
@@ -1825,16 +1825,16 @@ fun ShortsBar(shorts: ShortsState, progress: () -> Float, onBack: () -> Unit, mo
                     }
                 }
             }
-            GlassSlot(g, g.toolCenterX(1), slot, progress, piece = { g.right(it) }, follow = onPill, appear = tool(1), enabled = live, description = "Comments", onClick = shorts::openComments) {
+            GlassSlot(g, g.toolCenterX(1), slot, progress, piece = { g.right(it) }, follow = onPill, appear = tool(1), enabled = live, description = stringResource(R.string.shorts_comments), onClick = shorts::openComments) {
                 Icon(CommentGlyph, contentDescription = null, tint = Ink, modifier = Modifier.size(22.dp).optical(Mass.comment, 22.dp))
             }
-            GlassSlot(g, g.toolCenterX(2), slot, progress, piece = { g.right(it) }, follow = onPill, appear = tool(2), enabled = live, description = "Share", onClick = {
+            GlassSlot(g, g.toolCenterX(2), slot, progress, piece = { g.right(it) }, follow = onPill, appear = tool(2), enabled = live, description = stringResource(R.string.shorts_share), onClick = {
                 val v = shorts.current ?: return@GlassSlot
                 shareLink(context, "https://youtube.com/shorts/${v.id}", shorts.details[v.id]?.item?.title ?: "")
             }) {
                 Icon(ShareGlyph, contentDescription = null, tint = Ink, modifier = Modifier.size(23.dp).optical(Mass.share, 23.dp))
             }
-            GlassSlot(g, g.toolCenterX(3), slot, progress, piece = { g.right(it) }, follow = onPill, appear = tool(3), enabled = live, description = "Channel", onClick = shorts::toggleChannelMenu) {
+            GlassSlot(g, g.toolCenterX(3), slot, progress, piece = { g.right(it) }, follow = onPill, appear = tool(3), enabled = live, description = stringResource(R.string.shorts_channel), onClick = shorts::toggleChannelMenu) {
                 // The channel as drawn (no optical nudge: Derek, 2026-10-28), its badge + / ✓.
                 Box(Modifier.size(30.dp)) {
                     ChannelAvatar(details?.item?.avatar, details?.item?.channel.orEmpty(), size = 30)
@@ -2099,7 +2099,7 @@ fun ShortsChannelMenu(shorts: ShortsState, bottom: Dp, onChannel: (String) -> Un
                 shorts.toggleSubscribe()
                 shorts.channelMenu = false
             }
-            MenuRow(icon = SfIcons.AccountCircle, label = "Go to channel", enabled = open) {
+            MenuRow(icon = SfIcons.AccountCircle, label = stringResource(R.string.shorts_go_to_channel), enabled = open) {
                 shorts.channelMenu = false
                 details?.item?.channelUrl?.let(onChannel) ?: shorts.onMessage("This channel can't be opened.")
             }

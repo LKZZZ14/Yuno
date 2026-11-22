@@ -409,7 +409,7 @@ class PlayerState(private val scope: CoroutineScope) {
         known[item.id] = item
         if (current == null || player.mediaItemCount == 0) { open(item, expand = false); return }
         player.addMediaItem(player.currentMediaItemIndex + 1, mediaItemFor(item))
-        actionMessage = "Playing next"
+        actionMessage = str(R.string.player_playing_next)
         continueIfEnded(player)
     }
 
@@ -426,7 +426,7 @@ class PlayerState(private val scope: CoroutineScope) {
         known[item.id] = item
         if (current == null || player.mediaItemCount == 0) { open(item, expand = false); return }
         player.addMediaItem(mediaItemFor(item))
-        actionMessage = "Added to queue"
+        actionMessage = str(R.string.player_added_to_queue)
         continueIfEnded(player)
     }
 
@@ -596,19 +596,19 @@ class PlayerState(private val scope: CoroutineScope) {
         }
 
     fun setLike(target: LikeStatus) {
-        if (!Account.signedIn) { actionMessage = "Sign in to like videos."; return }
+        if (!Account.signedIn) { actionMessage = str(R.string.player_sign_in_to_like); return }
         val id = current?.id ?: return
         val before = accountState ?: return
         val next = if (before.like == target) LikeStatus.None else target
         accountState = before.copy(like = next)
         scope.launch {
             runCatching { InnerTube.setLike(id, next) }
-                .onFailure { accountState = before; actionMessage = "Couldn't update your like." }
+                .onFailure { accountState = before; actionMessage = str(R.string.player_like_failed) }
         }
     }
 
     fun toggleSubscribe() {
-        if (!Account.signedIn) { actionMessage = "Sign in to subscribe."; return }
+        if (!Account.signedIn) { actionMessage = str(R.string.shorts_sign_in_to_subscribe); return }
         val before = accountState ?: return
         val channelId = before.channelId
             ?: details?.item?.channelUrl?.substringAfter("/channel/", "")?.takeIf { it.startsWith("UC") }
@@ -617,12 +617,12 @@ class PlayerState(private val scope: CoroutineScope) {
         accountState = before.copy(subscribed = subscribe, channelId = channelId)
         scope.launch {
             runCatching { InnerTube.setSubscribed(channelId, subscribe) }
-                .onFailure { accountState = before; actionMessage = "Couldn't update your subscription." }
+                .onFailure { accountState = before; actionMessage = str(R.string.player_subscribe_failed) }
         }
     }
 
     fun toggleWatchLater() {
-        if (!Account.signedIn) { actionMessage = "Sign in to save videos."; return }
+        if (!Account.signedIn) { actionMessage = str(R.string.player_sign_in_to_save); return }
         val id = current?.id ?: return
         val add = !inWatchLater
         inWatchLater = add
@@ -630,11 +630,11 @@ class PlayerState(private val scope: CoroutineScope) {
         if (add) WatchLaterList.added(id) else WatchLaterList.remove(id)
         scope.launch {
             runCatching { InnerTube.setInWatchLater(id, add) }
-                .onSuccess { actionMessage = if (add) "Saved to Watch later" else str(R.string.ui_removed_from_watch_later) }
+                .onSuccess { actionMessage = if (add) str(R.string.player_saved_watch_later) else str(R.string.ui_removed_from_watch_later) }
                 .onFailure {
                     inWatchLater = !add
                     if (add) WatchLaterList.remove(id) else WatchLaterList.added(id)
-                    actionMessage = "Couldn't update Watch later."
+                    actionMessage = str(R.string.player_watch_later_update_failed)
                     Log.w(TAG, "watch later $id", it)
                 }
         }
@@ -642,15 +642,15 @@ class PlayerState(private val scope: CoroutineScope) {
 
     /** Long-press Save. Runs here, not in the sheet: closing the sheet would cancel its scope mid-request. */
     fun saveToWatchLater(video: VideoItem) {
-        if (!Account.signedIn) { actionMessage = "Sign in to save videos."; return }
+        if (!Account.signedIn) { actionMessage = str(R.string.player_sign_in_to_save); return }
         scope.launch {
             runCatching { InnerTube.setInWatchLater(video.id, true) }
                 .onSuccess {
                     if (current?.id == video.id) inWatchLater = true
                     WatchLaterList.added(video.id)
-                    actionMessage = "Saved to Watch later"
+                    actionMessage = str(R.string.player_saved_watch_later)
                 }
-                .onFailure { actionMessage = "Couldn't save to Watch later."; Log.w(TAG, "watch later ${video.id}", it) }
+                .onFailure { actionMessage = str(R.string.player_watch_later_failed); Log.w(TAG, "watch later ${video.id}", it) }
         }
     }
 
@@ -660,7 +660,7 @@ class PlayerState(private val scope: CoroutineScope) {
      * in a sheet: closing the menu would cancel its scope mid-request.
      */
     fun removeFromWatchLater(video: VideoItem) {
-        if (!Account.signedIn) { actionMessage = "Sign in to save videos."; return }
+        if (!Account.signedIn) { actionMessage = str(R.string.player_sign_in_to_save); return }
         WatchLaterList.remove(video.id)
         if (current?.id == video.id) inWatchLater = false
         scope.launch {
@@ -687,7 +687,7 @@ class PlayerState(private val scope: CoroutineScope) {
                 .onSuccess { actionMessage = if (channel) "Channel hidden from recommendations" else "Got it — we'll show fewer like this" }
                 .onFailure {
                     Dismissed.restore(video, channel)
-                    actionMessage = "Couldn't send feedback."
+                    actionMessage = str(R.string.player_feedback_failed)
                     Log.w(TAG, "feedback for ${video.id} (channel: $channel)", it)
                 }
         }
@@ -723,7 +723,7 @@ class PlayerState(private val scope: CoroutineScope) {
     private var choicesJob: Job? = null
 
     fun openPlaylists(video: VideoItem) {
-        if (!Account.signedIn) { actionMessage = "Sign in to save to a playlist."; return }
+        if (!Account.signedIn) { actionMessage = str(R.string.player_sign_in_to_playlist); return }
         playlistTarget = video
         playlistChoices = null
         playlistError = null
@@ -779,7 +779,7 @@ class PlayerState(private val scope: CoroutineScope) {
                     }
                     actionMessage = "Saved to $title"
                 }
-                .onFailure { actionMessage = "Couldn't create the playlist."; Log.w(TAG, "create playlist", it) }
+                .onFailure { actionMessage = str(R.string.player_create_playlist_failed); Log.w(TAG, "create playlist", it) }
         }
     }
 

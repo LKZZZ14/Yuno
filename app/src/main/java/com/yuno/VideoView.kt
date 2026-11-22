@@ -61,6 +61,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -163,6 +164,10 @@ fun VideoContent(
     var controlsVisible by remember { mutableStateOf(false) }
     var drop by remember { mutableStateOf<DropKind?>(null) }
     BackHandler(enabled = drop != null) { drop = null }
+    // Fullscreen chapters: a panel down the right edge, opened from the chapter's name (ChaptersPanel).
+    var chaptersPanel by remember { mutableStateOf(false) }
+    BackHandler(enabled = chaptersPanel && fullscreen) { chaptersPanel = false }
+    LaunchedEffect(fullscreen) { if (!fullscreen) chaptersPanel = false }
     var touchedAt by remember { mutableLongStateOf(0L) }
     fun touched() { touchedAt = System.nanoTime() }
     LaunchedEffect(controlsVisible, state.isPlaying, touchedAt) {
@@ -594,7 +599,7 @@ fun VideoContent(
                         }
                     }
                     // Next video (the queue's first, else the first suggestion). It took the place of the
-                    // PiP button; PiP still starts from Home, and from Settings > Playback's automatic PiP.
+                    // PiP button; PiP still starts from Home, and from Settings › Playback's automatic PiP.
                     OverlayTile(stringResource(R.string.video_next), enabled && state.hasNextUp, tool, onClick = { touched(); state.playNextUp() }) { ink ->
                         Icon(Icons.Rounded.SkipNext, null, tint = ink, modifier = Modifier.size(tool * 0.55f))
                     }
@@ -641,9 +646,18 @@ fun VideoContent(
                                 }
                             }
                             state.chapterAt(shownMs)?.let {
+                                // Tap the chapter's name for the list: a panel on the right in fullscreen,
+                                // a sheet in portrait.
                                 Text(
-                                    " · $it", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                    " · $it ›", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .pressable(enabled = enabled && !scrubbing, pressedScale = 0.96f) {
+                                            touched()
+                                            if (fullscreen) { chaptersPanel = true; controlsVisible = false }
+                                            else state.sheet = PlayerSheet.Chapters
+                                        }
+                                        .padding(vertical = 6.dp),
                                 )
                             }
                         }
@@ -737,6 +751,7 @@ fun VideoContent(
                 )
             }
         }
+        if (fullscreen && chaptersPanel) ChaptersPanel(state, onClose = { chaptersPanel = false })
     }
 }
 
@@ -832,7 +847,7 @@ private fun SkipSegmentPill(segment: SponsorBlock.Segment, enabled: Boolean, mod
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val ink = if (segment.category.color.luminance() > 0.45f) Color(0xFF151515) else Color.White
-        Text("Skip ${segment.category.short}", color = ink, fontSize = 12.sp, fontWeight = FontWeight.Black)
+        Text(stringResource(R.string.video_skip_segment, segment.category.short), color = ink, fontSize = 12.sp, fontWeight = FontWeight.Black)
         Icon(SfIcons.SkipNext, null, tint = ink, modifier = Modifier.size(18.dp))
     }
 }
@@ -853,11 +868,11 @@ private fun SkippedNote(state: PlayerState, modifier: Modifier) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "Skipped ${formatDuration(skip.segment.lengthMs)} ${skip.segment.category.short}",
+            stringResource(R.string.video_skipped, formatDuration(skip.segment.lengthMs), skip.segment.category.short),
             color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
         )
         Text(
-            "Undo",
+            stringResource(R.string.video_undo),
             color = skip.segment.category.color, fontSize = 12.sp, fontWeight = FontWeight.Black,
             modifier = Modifier.pressable { state.undoSkip(skip) }.padding(horizontal = 10.dp, vertical = 8.dp),
         )
@@ -878,18 +893,18 @@ fun QualitySheet(state: PlayerState, onDismiss: () -> Unit) {
         // Scrolls: in fullscreen (landscape) only the first few rows fit (GitHub issue #1).
         Column(Modifier.verticalScroll(rememberScrollState())) {
         Text(
-            "Quality",
+            stringResource(R.string.video_quality),
             fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp,
             modifier = Modifier.padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
         )
         state.playingFormat?.let {
             Text(
-                "Playing $it",
+                stringResource(R.string.video_quality_playing, it),
                 color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
             )
         }
-        SheetRow("Auto", "Best up to 1080p" + ((state.decodedHeight?.let { "${it}p" } ?: details.quality)?.let { " · playing $it" } ?: ""), chosen == null) {
+        SheetRow(stringResource(R.string.video_quality_auto), stringResource(R.string.video_quality_auto_best) + ((state.decodedHeight?.let { "${it}p" } ?: details.quality)?.let { " · " + stringResource(R.string.video_quality_auto_playing, it) } ?: ""), chosen == null) {
             state.setQuality(null); onDismiss()
         }
         details.qualities.forEach { h ->
@@ -912,7 +927,7 @@ fun SpeedSheet(state: PlayerState, onDismiss: () -> Unit) {
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Text(
-                "Speed",
+                stringResource(R.string.video_speed),
                 fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp,
                 modifier = Modifier.padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
             )
@@ -922,7 +937,11 @@ fun SpeedSheet(state: PlayerState, onDismiss: () -> Unit) {
     }
 }
 
-/** The video's chapters, the one playing marked; picking one seeks there and closes the sheet. */
+/**
+ * The video's chapters, each with the picture from where it starts (YouTube's storyboard, when
+ * the video has one) and its start time. The one playing is marked and the list opens scrolled
+ * to it. Picking one seeks there, and closes the sheet unless [ChaptersStayOpen] is on.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChaptersSheet(state: PlayerState, onDismiss: () -> Unit) {
@@ -930,30 +949,81 @@ fun ChaptersSheet(state: PlayerState, onDismiss: () -> Unit) {
     val chapters = state.details?.chapters.orEmpty()
     if (chapters.isEmpty()) return
     val current = chapters.indexOfLast { it.startMs <= state.positionMs }.coerceAtLeast(0)
+    val boards = state.details?.storyboards.orEmpty()
+    val sheets = rememberStoryboardSheets(state)
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = (current - 1).coerceAtLeast(0))
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = c.surfaceContainerLow,
     ) {
         Text(
-            "Chapters",
+            stringResource(R.string.chapters_title),
             fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp,
             modifier = Modifier.padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
         )
         Text(
-            "${current + 1} of ${chapters.size}",
+            stringResource(R.string.chapters_position, current + 1, chapters.size),
             color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
         )
         // Scrolls: a long chapter list must stay reachable in landscape, where the sheet is short.
-        LazyColumn(Modifier.height(340.dp)) {
+        LazyColumn(Modifier.heightIn(max = 460.dp), state = list) {
             itemsIndexed(chapters) { index, chapter ->
-                SheetRow(chapter.title, formatDuration(chapter.startMs), index == current) {
+                ChapterRow(chapter, index == current, boards, sheets, state.durationMs) {
                     state.seekTo(chapter.startMs)
                     if (!ChaptersStayOpen.on) onDismiss()
                 }
             }
             item { Spacer(Modifier.height(20.dp)) }
+        }
+    }
+}
+
+/** One chapter in [ChaptersSheet]: the frame it starts at (when there is one), its title and start time. */
+@Composable
+private fun ChapterRow(
+    chapter: Chapter,
+    playing: Boolean,
+    boards: List<Storyboard>,
+    sheets: StoryboardSheets,
+    durationMs: Long,
+    onClick: () -> Unit,
+) {
+    val c = MaterialTheme.colorScheme
+    val ink = if (playing) c.onPrimaryContainer else c.onSurface
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pressable(pressedScale = 0.98f, onClick = onClick)
+            .padding(horizontal = PageGutter, vertical = 2.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (playing) c.primaryContainer else c.primaryContainer.copy(alpha = 0f))
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (boards.isNotEmpty()) {
+            StoryboardThumb(
+                sheets, boards, chapter.startMs, durationMs,
+                Modifier.width(112.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(c.surfaceVariant),
+            )
+            Spacer(Modifier.width(12.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                chapter.title.ifBlank { formatDuration(chapter.startMs) },
+                fontWeight = FontWeight.Bold, fontSize = 15.sp, color = ink,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                formatDuration(chapter.startMs),
+                fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                color = if (playing) c.onPrimaryContainer.copy(alpha = 0.75f) else c.onSurfaceVariant,
+            )
+        }
+        if (playing) {
+            Spacer(Modifier.width(8.dp))
+            Icon(SfIcons.Check, stringResource(R.string.chapters_now_playing), tint = c.onPrimaryContainer)
         }
     }
 }

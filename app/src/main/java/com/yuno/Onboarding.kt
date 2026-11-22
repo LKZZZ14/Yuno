@@ -47,6 +47,7 @@ import android.view.HapticFeedbackConstants
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuno.icons.SfIcons
@@ -174,7 +175,7 @@ fun OnboardingScreen(onFinished: () -> Unit, onSignIn: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(SfIcons.ArrowBack, null, tint = c.onSurfaceVariant)
-                        Text("Back", color = c.onSurfaceVariant, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(stringResource(R.string.ui_back), color = c.onSurfaceVariant, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                     Row(
                         Modifier
@@ -184,7 +185,7 @@ fun OnboardingScreen(onFinished: () -> Unit, onSignIn: () -> Unit) {
                             .padding(horizontal = 18.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Next", color = c.onPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(stringResource(R.string.video_next), color = c.onPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         Spacer(Modifier.width(4.dp))
                         Icon(SfIcons.ArrowForward, null, tint = c.onPrimary, modifier = Modifier.size(18.dp))
                     }
@@ -213,7 +214,7 @@ fun OnboardingScreen(onFinished: () -> Unit, onSignIn: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(SfIcons.ArrowBack, null, tint = c.onSurfaceVariant)
-                            Text("Back", color = c.onSurfaceVariant, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(stringResource(R.string.ui_back), color = c.onSurfaceVariant, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
                     Box(

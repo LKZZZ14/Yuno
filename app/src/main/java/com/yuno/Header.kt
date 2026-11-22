@@ -450,7 +450,7 @@ fun PageTopBar(
                     .pressable(onClick = onBack),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(SfIcons.ArrowBack, contentDescription = "Back", tint = iconTint)
+                Icon(SfIcons.ArrowBack, contentDescription = stringResource(R.string.ui_back), tint = iconTint)
             }
         }
         val leading = if (onBack != null) PageGutter + TopControl + AccessoryGap else PageGutter
@@ -527,7 +527,7 @@ private fun SearchChipFold(
                             .pressable(onClick = onBack),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(SfIcons.ArrowBack, contentDescription = "Back", tint = iconTint)
+                        Icon(SfIcons.ArrowBack, contentDescription = stringResource(R.string.ui_back), tint = iconTint)
                     }
                 }
             }
@@ -674,7 +674,7 @@ fun HeaderActions(onSearch: () -> Unit, onAccount: () -> Unit) {
     val glass = LocalLiquidGlassEnabled.current && isGlassSupported()
     val tint = if (glass) glassContentColor() else MaterialTheme.colorScheme.onSurface
     Box(Modifier.size(TopControl).pressable(onClick = onSearch), contentAlignment = Alignment.Center) {
-        Icon(SfIcons.Search, contentDescription = "Search", tint = tint, modifier = Modifier.size(24.dp))
+        Icon(SfIcons.Search, contentDescription = stringResource(R.string.app_tab_search), tint = tint, modifier = Modifier.size(24.dp))
     }
     AccountAction(onAccount)
 }
@@ -688,7 +688,7 @@ fun SearchCircle(onClick: () -> Unit) {
         Modifier.size(TopControl).floatingChrome(CircleShape).pressable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(SfIcons.Search, contentDescription = "Search", tint = tint)
+        Icon(SfIcons.Search, contentDescription = stringResource(R.string.app_tab_search), tint = tint)
     }
 }
 
@@ -748,7 +748,7 @@ fun AccountAction(onClick: () -> Unit) {
             ) {
                 Icon(
                     SfIcons.Person,
-                    contentDescription = "Sign in",
+                    contentDescription = stringResource(R.string.ui_sign_in),
                     tint = c.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),
                 )

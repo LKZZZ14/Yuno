@@ -449,7 +449,7 @@ fun QueueSheet(player: PlayerState, onDismiss: () -> Unit) {
     val clearAlpha by animateFloatAsState(if (leavingRows == null && player.queue.isNotEmpty()) 1f else 0f, label = "clearAlpha")
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = c.surfaceContainerLow) {
         Row(Modifier.padding(horizontal = PageGutter).padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Queue", fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.ui_queue), fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp, modifier = Modifier.weight(1f))
             Text(
                 stringResource(R.string.ui_clear), color = c.primary, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp,
                 modifier = Modifier
@@ -622,7 +622,7 @@ private fun SettingSwitchRow(title: String, line: String, checked: Boolean, onCh
 fun AppearanceSettings() {
     val c = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth()) {
-        Text("Appearance", fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+        Text(stringResource(R.string.ui_appearance), fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
         Spacer(Modifier.height(10.dp))
         if (isGlassSupported()) {
             SettingSwitchRow(
