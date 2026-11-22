@@ -18,6 +18,9 @@ changes something people see or feel (faster, fewer errors); then say that.
 - Watch later: a trash button on every video takes it off the list, and a long-press or the video options offer Remove from Watch later.
 
 ### Improved
+- Search: the floating All / Shorts / Videos chips are gone, which ends the stutter at the top. The same choices are under Type in the filters button beside the search field.
+- New logo and app icon: ";)" in the app icon, splash screen, page header and notifications.
+- Settings › About also credits Claude (Anthropic).
 - New app icon: two chevrons (>>) on dark, with a themed version for Android 13+.
 - The CC button is gone from the player's controls. Captions still show as set in Settings › Captions, and a new switch there (CC button in the player) brings the button back.
 - The player's Next button replaces Picture-in-picture and now works with suggested videos too, not only the queue.
