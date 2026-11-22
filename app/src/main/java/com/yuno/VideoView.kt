@@ -578,7 +578,7 @@ fun VideoContent(
                         touched()
                         if (!toggleDrop(DropKind.Speed, 2)) state.sheet = PlayerSheet.Speed
                     }
-                    if (state.captions.tracks.isNotEmpty()) {
+                    if (CaptionSettings.button && state.captions.tracks.isNotEmpty()) {
                         OverlayTile(
                             stringResource(R.string.video_captions), enabled, tool, filled = state.captions.on,
                             modifier = Modifier.onGloballyPositioned { dropAnchors[3] = it },

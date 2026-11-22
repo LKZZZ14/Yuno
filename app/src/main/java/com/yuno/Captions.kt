@@ -220,7 +220,12 @@ object CaptionSettings {
     private const val KEY_LOOK = "look"
     private const val KEY_SIZE = "size"
     private const val KEY_LANGUAGE = "language"
+    private const val KEY_BUTTON = "player_button"
     private var prefs: SharedPreferences? = null
+
+    /** The CC button among the player's controls. Off by default (Lucas, 2026-11-22): captions are set in Settings. */
+    var button by mutableStateOf(false)
+        private set
 
     var show by mutableStateOf(Show.Foreign)
         private set
@@ -247,7 +252,10 @@ object CaptionSettings {
         } ?: Look.Yuno
         size = prefs?.getFloat(KEY_SIZE, 1f) ?: 1f
         pickedLanguage = prefs?.getString(KEY_LANGUAGE, null)
+        button = prefs?.getBoolean(KEY_BUTTON, false) == true
     }
+
+    fun chooseButton(on: Boolean) { button = on; prefs?.edit()?.putBoolean(KEY_BUTTON, on)?.apply() }
 
     fun chooseShow(value: Show) { show = value; prefs?.edit()?.putString(KEY_SHOW, value.name)?.apply() }
     fun chooseLook(value: Look) { look = value; prefs?.edit()?.putString(KEY_LOOK, value.name)?.apply() }

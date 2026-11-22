@@ -309,6 +309,11 @@ private fun CaptionsBody(search: SettingsSearch) {
                 CaptionSettings.Show.entries.indexOf(CaptionSettings.show),
             ) { CaptionSettings.chooseShow(CaptionSettings.Show.entries[it]) }
         }
+        val buttonTitle = stringResource(R.string.settings_cc_button_title)
+        val buttonLine = stringResource(R.string.settings_cc_button_line)
+        row(buttonTitle, buttonLine, "cc", "button") {
+            ToggleRow(Icons.Rounded.ClosedCaption, buttonTitle, buttonLine, CaptionSettings.button) { CaptionSettings.chooseButton(it) }
+        }
         val lookTitle = stringResource(R.string.captions_look)
         row(lookTitle) {
             ChoiceRow(
