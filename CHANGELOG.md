@@ -19,7 +19,7 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ### Improved
 - Search: the floating All / Shorts / Videos chips are gone, which ends the stutter at the top. The same choices are under Type in the filters button beside the search field.
-- New logo and app icon: ";)" in the app icon, splash screen, page header and notifications.
+- New logo and app icon (yours): two pause bars, a swoosh and a play button, in neon green and white on black. Black and white in notifications, the themed icon and the page header.
 - Settings › About also credits Claude (Anthropic).
 - New app icon: two chevrons (>>) on dark, with a themed version for Android 13+.
 - The CC button is gone from the player's controls. Captions still show as set in Settings › Captions, and a new switch there (CC button in the player) brings the button back.
