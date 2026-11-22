@@ -18,6 +18,7 @@ changes something people see or feel (faster, fewer errors); then say that.
 - Watch later: a trash button on every video takes it off the list, and a long-press or the video options offer Remove from Watch later.
 
 ### Improved
+- New app icon: two chevrons (>>) on dark, with a themed version for Android 13+.
 - The CC button is gone from the player's controls. Captions still show as set in Settings › Captions, and a new switch there (CC button in the player) brings the button back.
 - The player's Next button replaces Picture-in-picture and now works with suggested videos too, not only the queue.
 - Portuguese (Brazil) translation completed: player buttons, search filters, channel tabs, live chat and messages.
