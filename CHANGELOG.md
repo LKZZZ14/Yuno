@@ -18,6 +18,8 @@ changes something people see or feel (faster, fewer errors); then say that.
 - Watch later: a trash button on every video takes it off the list, and a long-press or the video options offer Remove from Watch later.
 
 ### Improved
+- The app is now PerTube, with a new emblem: app icon, opening animation (the frame swells in, the arrow slides in), page header and name. Notifications show the emblem in black and white.
+- 60 FPS: videos that have a 60 fps version play it by default, the quality lists mark those heights (for example 1080p60), and Settings has a switch (Prefer 60 FPS) to use the 30 fps version instead.
 - Opening animation: on a cold start the two pause bars pop in like eyes, the play button swims in and the smile is drawn behind it (about 1.6 s, tap to skip). It is skipped when the system turns animations off.
 - Search: the floating All / Shorts / Videos chips are gone, which ends the stutter at the top. The same choices are under Type in the filters button beside the search field.
 - New logo and app icon (yours): two pause bars, a swoosh and a play button, in neon green and white on black. Black and white in notifications, the themed icon and the page header.
