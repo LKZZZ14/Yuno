@@ -85,6 +85,8 @@ data class VideoDetails(
     val quality: String?,
     /** Every video height YouTube offers for this video, highest first. */
     val qualities: List<Int>,
+    /** The heights among [qualities] that also have a 60 fps stream. */
+    val fps60: Set<Int> = emptySet(),
     /** Width / height of the chosen stream, known before the first frame; null if unknown. */
     val aspect: Float? = null,
     /** The video's chapters in order (from its description timestamps / YouTube's markers); empty if none. */
@@ -248,6 +250,7 @@ object YouTube {
             music = isMusic(info),
             quality = picked.playedHeight?.let { "${it}p" },
             qualities = StreamSelection.heights(info),
+            fps60 = StreamSelection.heights60(info),
             aspect = (if (picked.usesSeparate) picked.video else picked.muxed)
                 ?.takeIf { it.width > 0 && it.height > 0 }?.let { it.width.toFloat() / it.height },
             chapters = info.streamSegments.orEmpty()
@@ -561,6 +564,8 @@ object StreamSelection {
         val video = (candidates.filter { it.height <= ceiling }.ifEmpty { candidates })
             .sortedWith(
                 compareBy<VideoStream> { if (it.height <= ceiling) ceiling - it.height else it.height }
+                    // 60 fps when asked for (and the video has it), else the lighter 30 fps one.
+                    .thenBy { if (Fps60.prefer) -it.fps else it.fps }
                     .thenBy { formatRank(it.format) },
             )
             .firstOrNull()
@@ -591,9 +596,18 @@ object StreamSelection {
         val usable = info.videoOnlyStreams.filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.height in 1..MAX_HEIGHT && it.itagItem != null }
         val family = usable.filter { it.codec?.startsWith("avc") == true }.ifEmpty { usable.filter { it.format == MediaFormat.WEBM } }
         return family.groupBy { it.height }
-            .map { (_, sameHeight) -> sameHeight.maxBy { it.fps * 100_000L + it.bitrate } }
+            .map { (_, sameHeight) ->
+                if (Fps60.prefer) sameHeight.maxBy { it.fps * 100_000L + it.bitrate }
+                else sameHeight.sortedWith(compareBy<VideoStream> { it.fps }.thenByDescending { it.bitrate }).first()
+            }
             .sortedBy { it.height }
     }
+
+    /** Heights that have a stream of 50 fps or more. */
+    fun heights60(info: StreamInfo): Set<Int> = info.videoOnlyStreams
+        .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.height > 0 && it.fps >= 50 }
+        .map { it.height }
+        .toSet()
 
     fun heights(info: StreamInfo): List<Int> = info.videoOnlyStreams
         .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.height > 0 }

@@ -908,7 +908,7 @@ fun QualitySheet(state: PlayerState, onDismiss: () -> Unit) {
             state.setQuality(null); onDismiss()
         }
         details.qualities.forEach { h ->
-            SheetRow("${h}p", qualityTag(h), chosen == h) { state.setQuality(h); onDismiss() }
+            SheetRow(Fps60.label(h, details), qualityTag(h), chosen == h) { state.setQuality(h); onDismiss() }
         }
         Spacer(Modifier.height(28.dp))
         }
@@ -1329,7 +1329,7 @@ private fun BoxScope.QualityDrop(state: PlayerState, open: Boolean, anchor: Rect
         val playing = state.decodedHeight?.let { "${it}p" } ?: details.quality
         rows.forEach { h ->
             DropRow(
-                title = if (h == null) stringResource(R.string.video_quality_auto) else "${h}p",
+                title = if (h == null) stringResource(R.string.video_quality_auto) else Fps60.label(h, details),
                 tag = if (h == null) playing else qualityTag(h),
                 selected = picked == h,
             ) {

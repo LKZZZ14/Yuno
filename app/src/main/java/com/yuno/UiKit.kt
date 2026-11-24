@@ -128,13 +128,11 @@ internal val TopBarContentGap = 12.dp
 
 @Composable
 fun BrandMark(modifier: Modifier = Modifier, size: Dp = 40.dp) {
-    val ink = MaterialTheme.colorScheme.onBackground
     Image(
-        painter = painterResource(R.drawable.brand_mark_smile),
-        contentDescription = "Yuno",
+        painter = painterResource(R.drawable.emblem_color),
+        contentDescription = "PerTube",
         modifier = modifier.size(size),
         contentScale = ContentScale.Fit,
-        colorFilter = ColorFilter.tint(ink, BlendMode.SrcIn),
     )
 }
 

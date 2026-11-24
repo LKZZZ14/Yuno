@@ -27,6 +27,7 @@ class YunoApplication : Application(), ImageLoaderFactory {
         QualityPreference.init(this)
         PlaybackSpeed.init(this)
         AutoPlay.init(this)
+        Fps60.init(this)
         PlayerControls.init(this)
         FullscreenZoom.init(this)
         SeekStep.init(this)

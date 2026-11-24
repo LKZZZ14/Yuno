@@ -252,16 +252,19 @@ fun LargePageBrandMark(
                 bottom = inset + contentGap + extra,
             )
             .height(LargePageBrandMarkSize)
-            .aspectRatio(WordmarkAspect)
             .pullScale(pull?.markScale() ?: 1f),
     ) {
-        Image(
-            painter = painterResource(R.drawable.wordmark_smile),
-            contentDescription = "Yuno",
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Fit,
-            colorFilter = ColorFilter.tint(ink, BlendMode.SrcIn),
-        )
+        // The emblem, then the name (Lucas, 2026-11-24).
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(
+                painter = painterResource(R.drawable.emblem_color),
+                contentDescription = null,
+                modifier = Modifier.height(LargePageBrandMarkSize).aspectRatio(1f),
+                contentScale = ContentScale.Fit,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text("PerTube", color = ink, fontWeight = FontWeight.ExtraBold, fontSize = 30.sp, maxLines = 1)
+        }
     }
 }
 

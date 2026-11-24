@@ -284,6 +284,11 @@ private fun PlaybackBody(player: PlayerState, search: SettingsSearch) {
         row(mixTitle, mixLine, "playlist", "mix") {
             ToggleRow(Icons.Rounded.QueueMusic, mixTitle, mixLine, AutoPlay.musicMix) { AutoPlay.chooseMusicMix(it) }
         }
+        val fpsTitle = stringResource(R.string.settings_fps60_title)
+        val fpsLine = stringResource(R.string.settings_fps60_line)
+        row(fpsTitle, fpsLine, "60", "fps", "quality", "qualidade") {
+            ToggleRow(Icons.Rounded.Speed, fpsTitle, fpsLine, Fps60.prefer) { Fps60.choose(it) }
+        }
         val zoomTitle = stringResource(R.string.settings_zoom_fill_title)
         val zoomLine = stringResource(if (FullscreenZoom.fill) R.string.settings_zoom_fill_on else R.string.settings_zoom_fill_off)
         row(zoomTitle, zoomLine, "pinch", "fullscreen") {

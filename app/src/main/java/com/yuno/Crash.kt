@@ -82,7 +82,7 @@ object CrashLog {
     fun report(context: Context): String = buildString {
         val am = context.getSystemService(ActivityManager::class.java)
         val ram = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
-        appendLine("**Yuno ${BuildConfig.VERSION_NAME}** (${BuildConfig.VERSION_CODE}, ${BuildConfig.BUILD_TYPE})")
+        appendLine("**PerTube ${BuildConfig.VERSION_NAME}** (${BuildConfig.VERSION_CODE}, ${BuildConfig.BUILD_TYPE})")
         appendLine("Phone: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE}), Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
         appendLine("Build: ${Build.DISPLAY}")
         appendLine("Memory: app heap ${am.largeMemoryClass} MB (large) / ${am.memoryClass} MB, phone ${mb(ram.totalMem)} MB, ${mb(ram.availMem)} MB free now")
@@ -90,10 +90,10 @@ object CrashLog {
         appendLine()
         appendLine("## Crashes")
         val saved = files()
-        if (saved.isEmpty()) appendLine("None saved. (A native crash, low memory or the system closing Yuno leaves no trace here, only in the list below.)")
+        if (saved.isEmpty()) appendLine("None saved. (A native crash, low memory or the system closing PerTube leaves no trace here, only in the list below.)")
         saved.forEach { appendLine(); append(it.readText()) }
         appendLine()
-        appendLine("## How Android ended Yuno")
+        appendLine("## How Android ended PerTube")
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) appendLine("Android 10 and older don't keep this.")
         else exits(am)
     }
