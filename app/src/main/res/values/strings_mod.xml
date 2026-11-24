@@ -17,4 +17,6 @@
     <string name="settings_cc_button_line">Show the captions button among the video controls</string>
     <string name="settings_credit_claude_title">Made with Claude</string>
     <string name="settings_credit_claude_line">Code written with help from Claude, by Anthropic</string>
+    <string name="settings_fps60_title">Prefer 60 FPS</string>
+    <string name="settings_fps60_line">Plays the 60 frames-per-second version when a video has one. Turn off to save data and battery. Counts from the next video.</string>
 </resources>
